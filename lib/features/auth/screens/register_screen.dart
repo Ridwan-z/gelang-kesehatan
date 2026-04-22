@@ -30,24 +30,39 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-    await ref.read(authNotifierProvider.notifier).register(
-      email:    _emailCtrl.text.trim(),
-      password: _passCtrl.text,
-      fullName: _nameCtrl.text.trim(),
-    );
+  if (!_formKey.currentState!.validate()) return;
+  await ref.read(authNotifierProvider.notifier).register(
+    email:    _emailCtrl.text.trim(),
+    password: _passCtrl.text,
+    fullName: _nameCtrl.text.trim(),
+  );
 
-    if (!mounted) return;
-    final state = ref.read(authNotifierProvider);
-    state.whenOrNull(
-      error: (e, _) => ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_friendlyError(e.toString())),
-          backgroundColor: Theme.of(context).colorScheme.error,
+  if (!mounted) return;
+  final state = ref.read(authNotifierProvider);
+  state.whenOrNull(
+    data: (_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.black),
+              SizedBox(width: 10),
+              Text('Akun berhasil dibuat! Selamat datang 🎉'),
+            ],
+          ),
+          backgroundColor: Color(0xFF1DB954),
+          duration: Duration(seconds: 2),
         ),
+      );
+    },
+    error: (e, _) => ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(_friendlyError(e.toString())),
+        backgroundColor: Theme.of(context).colorScheme.error,
       ),
-    );
-  }
+    ),
+  );
+}
 
   String _friendlyError(String raw) {
     if (raw.contains('already registered')) return 'Email sudah terdaftar';

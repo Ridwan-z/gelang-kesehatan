@@ -12,13 +12,14 @@ class DashboardScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final user        = ref.watch(currentUserProvider);
-    final devices     = ref.watch(deviceListProvider);
-    final latestHR    = ref.watch(latestHeartRateProvider);
-    final steps       = ref.watch(todayStepsProvider);
-    final hrHistory   = ref.watch(heartRateHistoryProvider);
-    final summary     = ref.watch(todaySummaryProvider);
-    final firstName   = user?.userMetadata?['full_name']?.toString().split(' ').first ?? 'Pengguna';
+    final theme     = Theme.of(context); // ← tambah ini
+    final user      = ref.watch(currentUserProvider);
+    final devices   = ref.watch(deviceListProvider);
+    final latestHR  = ref.watch(latestHeartRateProvider);
+    final steps     = ref.watch(todayStepsProvider);
+    final hrHistory = ref.watch(heartRateHistoryProvider);
+    final summary   = ref.watch(todaySummaryProvider);
+    final firstName = user?.userMetadata?['full_name']?.toString().split(' ').first ?? 'Pengguna';
 
     return Scaffold(
       body: SafeArea(
@@ -30,7 +31,6 @@ class DashboardScreen extends ConsumerWidget {
           },
           child: CustomScrollView(
             slivers: [
-              // ── App bar ──────────────────────────────
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
@@ -48,13 +48,12 @@ class DashboardScreen extends ConsumerWidget {
                               DateFormat('EEEE, d MMMM yyyy', 'id').format(DateTime.now()),
                               style: TextStyle(
                                 fontSize: 13,
-                                color: Colors.white.withOpacity(0.5),
+                                color: theme.colorScheme.onSurface.withOpacity(0.5),
                               ),
                             ),
                           ],
                         ),
                       ),
-                      // Device status indicator
                       devices.when(
                         data: (devs) => devs.isEmpty
                             ? const SizedBox()
@@ -67,33 +66,31 @@ class DashboardScreen extends ConsumerWidget {
                 ),
               ),
 
-              // ── No device state ───────────────────────
               if (devices.asData?.value.isEmpty == true)
                 SliverFillRemaining(
                   child: Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.watch_off_outlined, size: 64, color: Colors.white.withOpacity(0.3)),
+                        Icon(Icons.watch_off_outlined, size: 64,
+                          color: theme.colorScheme.onSurface.withOpacity(0.3)),
                         const SizedBox(height: 16),
                         const Text('Belum ada gelang terpasang',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                         const SizedBox(height: 8),
                         Text('Pasangkan gelang di menu Profil',
-                            style: TextStyle(color: Colors.white.withOpacity(0.5))),
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurface.withOpacity(0.5))),
                       ],
                     ),
                   ),
                 ),
 
-              // ── Main content ──────────────────────────
               if (devices.asData?.value.isNotEmpty == true) ...[
                 SliverPadding(
                   padding: const EdgeInsets.all(20),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
-
-                      // BPM + SpO2 cards
                       latestHR.when(
                         data: (data) => Row(
                           children: [
@@ -121,7 +118,6 @@ class DashboardScreen extends ConsumerWidget {
                       ),
                       const SizedBox(height: 12),
 
-                      // Steps + Calories
                       Row(
                         children: [
                           Expanded(child: steps.when(
@@ -151,7 +147,6 @@ class DashboardScreen extends ConsumerWidget {
                       ),
                       const SizedBox(height: 20),
 
-                      // BPM mini chart
                       hrHistory.when(
                         data: (history) => history.isEmpty
                             ? const SizedBox()
@@ -161,8 +156,17 @@ class DashboardScreen extends ConsumerWidget {
                       ),
                       const SizedBox(height: 20),
 
-                      // Activity type
-                      _ActivityCard(),
+                      const _ActivityCard(),
+
+                      // Tambah di bagian SliverChildListDelegate setelah _ActivityCard()
+const SizedBox(height: 12),
+ref.watch(lastSleepProvider).when(
+  data: (sleep) => sleep == null
+      ? const SizedBox()
+      : _SleepCard(sleep: sleep),
+  loading: () => const _ChartSkeleton(),
+  error: (_, __) => const SizedBox(),
+),
                     ]),
                   ),
                 ),
@@ -175,14 +179,14 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   Color _bpmColor(int? bpm) {
-    if (bpm == null) return Colors.white54;
+    if (bpm == null) return Colors.grey;
     if (bpm > 150 || bpm < 45) return const Color(0xFFFF3B30);
     if (bpm > 120 || bpm < 55) return const Color(0xFFFF9F0A);
     return const Color(0xFF1DB954);
   }
 
   Color _spo2Color(int? spo2) {
-    if (spo2 == null) return Colors.white54;
+    if (spo2 == null) return Colors.grey;
     if (spo2 < 90) return const Color(0xFFFF3B30);
     if (spo2 < 95) return const Color(0xFFFF9F0A);
     return const Color(0xFF1DB954);
@@ -204,10 +208,11 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context); // ← tambah ini
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1C1C1E),
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
         border: isAlert ? Border.all(color: const Color(0xFFFF3B30), width: 1.5) : null,
       ),
@@ -220,7 +225,9 @@ class _MetricCard extends StatelessWidget {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(label,
-                  style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.5)),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.onSurface.withOpacity(0.5)),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -231,13 +238,22 @@ class _MetricCard extends StatelessWidget {
                     color: const Color(0xFFFF3B30).withOpacity(0.15),
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: const Text('!', style: TextStyle(color: Color(0xFFFF3B30), fontSize: 11, fontWeight: FontWeight.w700)),
+                  child: const Text('!',
+                    style: TextStyle(
+                      color: Color(0xFFFF3B30),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700)),
                 ),
             ],
           ),
           const SizedBox(height: 10),
-          Text(value, style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: color)),
-          Text(unit, style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.4))),
+          Text(value,
+            style: TextStyle(
+              fontSize: 28, fontWeight: FontWeight.w700, color: color)),
+          Text(unit,
+            style: TextStyle(
+              fontSize: 12,
+              color: theme.colorScheme.onSurface.withOpacity(0.4))),
         ],
       ),
     );
@@ -251,13 +267,14 @@ class _BpmChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context); // ← tambah ini
     final spots = history.asMap().entries.map((e) =>
       FlSpot(e.key.toDouble(), e.value.bpm.toDouble())).toList();
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1C1C1E),
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -266,9 +283,12 @@ class _BpmChart extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Detak Jantung', style: TextStyle(fontWeight: FontWeight.w600)),
+              const Text('Detak Jantung',
+                style: TextStyle(fontWeight: FontWeight.w600)),
               Text('20 data terakhir',
-                style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.4))),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: theme.colorScheme.onSurface.withOpacity(0.4))),
             ],
           ),
           const SizedBox(height: 16),
@@ -311,15 +331,18 @@ class _BpmChart extends StatelessWidget {
 
 // ── Activity card ─────────────────────────────────────────────
 class _ActivityCard extends ConsumerWidget {
+  const _ActivityCard();
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final theme    = Theme.of(context); // ← tambah ini
     final deviceId = ref.watch(selectedDeviceIdProvider);
     if (deviceId == null) return const SizedBox();
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1C1C1E),
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
@@ -330,20 +353,25 @@ class _ActivityCard extends ConsumerWidget {
               color: const Color(0xFF0A84FF).withOpacity(0.15),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: const Icon(Icons.directions_walk, color: Color(0xFF0A84FF), size: 26),
+            child: const Icon(Icons.directions_walk,
+              color: Color(0xFF0A84FF), size: 26),
           ),
           const SizedBox(width: 14),
           const Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Aktivitas', style: TextStyle(fontWeight: FontWeight.w600)),
+              Text('Aktivitas',
+                style: TextStyle(fontWeight: FontWeight.w600)),
               SizedBox(height: 4),
-              Text('Berjalan', style: TextStyle(color: Color(0xFF0A84FF), fontSize: 13)),
+              Text('Berjalan',
+                style: TextStyle(color: Color(0xFF0A84FF), fontSize: 13)),
             ],
           ),
           const Spacer(),
-          Text('Aktif', style: TextStyle(
-            fontSize: 13, color: Colors.white.withOpacity(0.4))),
+          Text('Aktif',
+            style: TextStyle(
+              fontSize: 13,
+              color: theme.colorScheme.onSurface.withOpacity(0.4))),
         ],
       ),
     );
@@ -357,10 +385,11 @@ class _DeviceStatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context); // ← tambah ini
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFF1C1C1E),
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
@@ -383,22 +412,24 @@ class _DeviceStatusBadge extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 6),
-          Icon(Icons.battery_std, size: 14, color: Colors.white.withOpacity(0.5)),
+          Icon(Icons.battery_std, size: 14,
+            color: theme.colorScheme.onSurface.withOpacity(0.5)),
           Text(
             '${device.batteryPct}%',
-            style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.5)),
-          ),
+            style: TextStyle(
+              fontSize: 12,
+              color: theme.colorScheme.onSurface.withOpacity(0.5))),
         ],
       ),
     );
   }
 }
 
-// ── Skeletons (loading state) ─────────────────────────────────
+// ── Skeletons ─────────────────────────────────────────────────
 class _MetricCardsSkeleton extends StatelessWidget {
   const _MetricCardsSkeleton();
   @override
-  Widget build(BuildContext context) => Row(children: const [
+  Widget build(BuildContext context) => const Row(children: [
     Expanded(child: _SkeletonBox(height: 100)),
     SizedBox(width: 12),
     Expanded(child: _SkeletonBox(height: 100)),
@@ -420,12 +451,149 @@ class _ChartSkeleton extends StatelessWidget {
 class _SkeletonBox extends StatelessWidget {
   final double height;
   const _SkeletonBox({required this.height});
+
   @override
-  Widget build(BuildContext context) => Container(
-    height: height,
-    decoration: BoxDecoration(
-      color: const Color(0xFF1C1C1E),
-      borderRadius: BorderRadius.circular(16),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context); // ← tambah ini
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+    );
+  }
+}
+
+// ── Sleep card ────────────────────────────────────────────────
+class _SleepCard extends StatelessWidget {
+  final SleepData sleep;
+  const _SleepCard({required this.sleep});
+
+  String _formatDuration(int? minutes) {
+    if (minutes == null) return '--';
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return '${h}j ${m}m';
+  }
+
+  Color _qualityColor(int? score) {
+    if (score == null) return Colors.grey;
+    if (score >= 80) return const Color(0xFF1DB954);
+    if (score >= 60) return const Color(0xFFFF9F0A);
+    return const Color(0xFFFF3B30);
+  }
+
+  String _qualityLabel(int? score) {
+    if (score == null) return '--';
+    if (score >= 80) return 'Baik';
+    if (score >= 60) return 'Cukup';
+    return 'Kurang';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final qualColor = _qualityColor(sleep.qualityScore);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.bedtime, color: const Color(0xFF0A84FF), size: 18),
+              const SizedBox(width: 6),
+              Text('Tidur Terakhir',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: theme.colorScheme.onSurface.withOpacity(0.5))),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: qualColor.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  _qualityLabel(sleep.qualityScore),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: qualColor,
+                    fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              // Durasi
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _formatDuration(sleep.durationMin),
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0A84FF)),
+                    ),
+                    Text('Durasi',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.onSurface.withOpacity(0.4))),
+                  ],
+                ),
+              ),
+              // Quality score
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${sleep.qualityScore ?? '--'}',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        color: qualColor),
+                    ),
+                    Text('Skor Kualitas',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.onSurface.withOpacity(0.4))),
+                  ],
+                ),
+              ),
+              // Avg BPM saat tidur
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${sleep.avgBpm ?? '--'}',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        color: theme.colorScheme.onSurface),
+                    ),
+                    Text('BPM rata-rata',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.onSurface.withOpacity(0.4))),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }

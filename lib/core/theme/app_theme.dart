@@ -2,13 +2,10 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  // ── Brand colors ──────────────────────────────────────────
-  static const primary    = Color(0xFF1DB954); // hijau sehat
-  static const secondary  = Color(0xFF0A84FF); // biru info
-  static const danger     = Color(0xFFFF3B30); // merah alert
-  static const warning    = Color(0xFFFF9F0A); // oranye warning
-  static const surface    = Color(0xFF1C1C1E); // card dark
-  static const background = Color(0xFF000000);
+  static const primary    = Color(0xFF1DB954);
+  static const secondary  = Color(0xFF0A84FF);
+  static const danger     = Color(0xFFFF3B30);
+  static const warning    = Color(0xFFFF9F0A);
 
   static ThemeData get dark => ThemeData(
     useMaterial3: true,
@@ -16,12 +13,12 @@ class AppTheme {
     colorScheme: ColorScheme.dark(
       primary:   primary,
       secondary: secondary,
-      surface:   surface,
+      surface:   const Color(0xFF1C1C1E),
       error:     danger,
     ),
-    scaffoldBackgroundColor: background,
+    scaffoldBackgroundColor: const Color(0xFF000000),
     appBarTheme: const AppBarTheme(
-      backgroundColor: background,
+      backgroundColor: Color(0xFF000000),
       elevation: 0,
       centerTitle: false,
       titleTextStyle: TextStyle(
@@ -31,7 +28,7 @@ class AppTheme {
       ),
     ),
     cardTheme: CardThemeData(
-      color: surface,
+      color: const Color(0xFF1C1C1E),
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     ),
@@ -46,7 +43,56 @@ class AppTheme {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: surface,
+      fillColor: const Color(0xFF1C1C1E),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: primary, width: 1.5),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    ),
+  );
+
+  static ThemeData get light => ThemeData(
+    useMaterial3: true,
+    brightness: Brightness.light,
+    colorScheme: ColorScheme.light(
+      primary:   primary,
+      secondary: secondary,
+      surface:   const Color(0xFFF2F2F7),
+      error:     danger,
+    ),
+    scaffoldBackgroundColor: const Color(0xFFFFFFFF),
+    appBarTheme: const AppBarTheme(
+      backgroundColor: Color(0xFFFFFFFF),
+      elevation: 0,
+      centerTitle: false,
+      titleTextStyle: TextStyle(
+        color: Colors.black,
+        fontSize: 20,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    cardTheme: CardThemeData(
+      color: const Color(0xFFF2F2F7),
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: primary,
+        foregroundColor: Colors.white,
+        minimumSize: const Size(double.infinity, 52),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+      ),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: const Color(0xFFF2F2F7),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
         borderSide: BorderSide.none,

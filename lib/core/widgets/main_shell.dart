@@ -17,15 +17,16 @@ class MainShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final location = GoRouterState.of(context).matchedLocation;
+    final location     = GoRouterState.of(context).matchedLocation;
     final currentIndex = _locationToIndex(location);
+    final theme        = Theme.of(context);
 
     return Scaffold(
       body: child,
       bottomNavigationBar: NavigationBar(
         selectedIndex: currentIndex,
-        backgroundColor: const Color(0xFF1C1C1E),
-        indicatorColor: const Color(0xFF1DB954).withOpacity(0.2),
+        backgroundColor: theme.colorScheme.surface,
+        indicatorColor: theme.colorScheme.primary.withOpacity(0.2),
         onDestinationSelected: (i) {
           switch (i) {
             case 0: context.go('/dashboard'); break;

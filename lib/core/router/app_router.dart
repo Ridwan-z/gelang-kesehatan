@@ -13,9 +13,21 @@ import '../../features/family/screens/family_screen.dart';
 import '../../features/alerts/screens/alerts_screen.dart';
 import '../widgets/main_shell.dart';
 
+// Listenable yang listen ke Supabase auth state changes
+class _AuthChangeNotifier extends ChangeNotifier {
+  _AuthChangeNotifier() {
+    Supabase.instance.client.auth.onAuthStateChange.listen((_) {
+      notifyListeners();
+    });
+  }
+}
+
+final _authNotifier = _AuthChangeNotifier();
+
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/dashboard',
+    refreshListenable: _authNotifier, // <-- ini yang bikin redirect otomatis
     redirect: (context, state) {
       final session = Supabase.instance.client.auth.currentSession;
       final isLoggedIn = session != null;
@@ -27,7 +39,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
-      // ── Auth routes ──────────────────────────────────────
       GoRoute(
         path: '/login',
         builder: (_, __) => const LoginScreen(),
@@ -36,8 +47,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/register',
         builder: (_, __) => const RegisterScreen(),
       ),
-
-      // ── Main shell dengan bottom nav ─────────────────────
       ShellRoute(
         builder: (context, state, child) => MainShell(child: child),
         routes: [

@@ -23,23 +23,38 @@ class AuthNotifier extends AsyncNotifier<void> {
     _supabase = ref.watch(supabaseProvider);
   }
 
-  Future<void> register({
-    required String email,
-    required String password,
-    required String fullName,
-  }) async {
-    state = const AsyncValue.loading();
-    try {
-      await _supabase.auth.signUp(
-        email: email,
-        password: password,
-        data: {'full_name': fullName},
-      );
-      state = const AsyncValue.data(null);
-    } catch (e, st) {
-      state = AsyncValue.error(e, st);
+ Future<void> register({
+  required String email,
+  required String password,
+  required String fullName,
+}) async {
+  state = const AsyncValue.loading();
+  try {
+    await _supabase.auth.signUp(
+      email: email,
+      password: password,
+      data: {'full_name': fullName},
+    );
+
+    await _supabase.auth.signInWithPassword(
+      email: email,
+      password: password,
+    );
+
+    // Buat profile di tabel profiles
+    final user = _supabase.auth.currentUser;
+    if (user != null) {
+      await _supabase.from('profiles').upsert({
+        'id': user.id,
+        'full_name': fullName,
+      });
     }
+
+    state = const AsyncValue.data(null);
+  } catch (e, st) {
+    state = AsyncValue.error(e, st);
   }
+}
 
   Future<void> login({
     required String email,
