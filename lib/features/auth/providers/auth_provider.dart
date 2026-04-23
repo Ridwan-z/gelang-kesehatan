@@ -51,9 +51,11 @@ class AuthNotifier extends AsyncNotifier<void> {
     }
 
     state = const AsyncValue.data(null);
-  } catch (e, st) {
-    state = AsyncValue.error(e, st);
-  }
+ } catch (e, st) {
+  print('REGISTER ERROR: $e');
+  print('REGISTER STACKTRACE: $st');
+  state = AsyncValue.error(e, st);
+}
 }
 
   Future<void> login({

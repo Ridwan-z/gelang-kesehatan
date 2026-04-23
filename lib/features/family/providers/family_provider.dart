@@ -76,24 +76,26 @@ final myFamilyGroupProvider = FutureProvider<FamilyGroup?>((ref) async {
   final user     = supabase.auth.currentUser;
   if (user == null) return null;
 
-  // Cek apakah user adalah admin grup
+  // Cek apakah user adalah admin grup (ambil 1 saja)
   final adminRes = await supabase
       .from('family_groups')
       .select()
       .eq('admin_id', user.id)
-      .maybeSingle();
+      .order('created_at', ascending: false)
+      .limit(1);  // ← pakai limit, bukan maybeSingle
 
-  if (adminRes != null) return FamilyGroup.fromMap(adminRes);
+  if (adminRes.isNotEmpty) return FamilyGroup.fromMap(adminRes.first);
 
   // Cek apakah user adalah member
   final memberRes = await supabase
       .from('family_members')
       .select('group_id, family_groups(*)')
       .eq('user_id', user.id)
-      .maybeSingle();
+      .order('joined_at', ascending: false)
+      .limit(1);  // ← pakai limit, bukan maybeSingle
 
-  if (memberRes != null && memberRes['family_groups'] != null) {
-    return FamilyGroup.fromMap(memberRes['family_groups']);
+  if (memberRes.isNotEmpty && memberRes.first['family_groups'] != null) {
+    return FamilyGroup.fromMap(memberRes.first['family_groups']);
   }
 
   return null;

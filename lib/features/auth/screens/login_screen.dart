@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/auth_provider.dart';
+import '../../guest/screens/guest_join_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -88,7 +89,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 const SizedBox(height: 6),
                 Text(
                   'Login untuk pantau kesehatan kamu',
-                  style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.5)),
+                  style: TextStyle(fontSize: 14,
+                      color: Colors.white.withOpacity(0.5)),
                 ),
                 const SizedBox(height: 40),
 
@@ -116,13 +118,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     labelText: 'Password',
                     prefixIcon: const Icon(Icons.lock_outline),
                     suffixIcon: IconButton(
-                      icon: Icon(_obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined),
-                      onPressed: () => setState(() => _obscure = !_obscure),
+                      icon: Icon(_obscure
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined),
+                      onPressed: () =>
+                          setState(() => _obscure = !_obscure),
                     ),
                   ),
                   validator: (v) {
-                    if (v == null || v.isEmpty)  return 'Password wajib diisi';
-                    if (v.length < 6)            return 'Password minimal 6 karakter';
+                    if (v == null || v.isEmpty) return 'Password wajib diisi';
+                    if (v.length < 6)           return 'Password minimal 6 karakter';
                     return null;
                   },
                 ),
@@ -134,7 +139,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   child: isLoading
                       ? const SizedBox(
                           height: 22, width: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.black),
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2.5, color: Colors.black),
                         )
                       : const Text('Masuk'),
                 ),
@@ -146,7 +152,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   children: [
                     Text(
                       'Belum punya akun? ',
-                      style: TextStyle(color: Colors.white.withOpacity(0.5)),
+                      style: TextStyle(
+                          color: Colors.white.withOpacity(0.5)),
                     ),
                     GestureDetector(
                       onTap: () => context.go('/register'),
@@ -159,6 +166,50 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 28),
+
+                // ── Divider ──────────────────────────────
+                Row(
+                  children: [
+                    Expanded(
+                        child: Divider(
+                            color: Colors.white.withOpacity(0.1))),
+                    Padding(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 12),
+                      child: Text(
+                        'atau',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.3),
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                        child: Divider(
+                            color: Colors.white.withOpacity(0.1))),
+                  ],
+                ),
+                const SizedBox(height: 28),
+
+                // ── Gabung keluarga ──────────────────────
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const GuestJoinScreen()),
+                  ),
+                  icon: const Icon(Icons.people_outline, size: 18),
+                  label: const Text('Lihat Kondisi Keluarga'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 52),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                    side: BorderSide(
+                        color: Colors.white.withOpacity(0.2)),
+                    foregroundColor: Colors.white.withOpacity(0.7),
+                  ),
                 ),
               ],
             ),
