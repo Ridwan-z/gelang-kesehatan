@@ -2,801 +2,610 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 
-import '../providers/family_provider.dart';
+import '../../auth/providers/auth_provider.dart';
 
+// ── Provider: ambil atau buat family group dari Supabase ──────
+final familyGroupProvider = FutureProvider<Map<String, dynamic>>((ref) async {
+  final supabase = ref.watch(supabaseProvider);
+  final user = supabase.auth.currentUser;
+  if (user == null) throw Exception('Tidak terautentikasi');
+
+  // Cek apakah user sudah punya grup (sebagai admin)
+  final existing = await supabase
+      .from('family_groups')
+      .select('id, name, invite_code, created_at')
+      .eq('admin_id', user.id)
+      .limit(1);
+
+  if ((existing as List).isNotEmpty) {
+    return existing.first as Map<String, dynamic>;
+  }
+
+  // Belum ada grup → buat otomatis
+  // invite_code sudah punya default di DB: substr(md5(random()::text), 1, 8)
+  final profile = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', user.id)
+      .maybeSingle();
+
+  final groupName = profile != null
+      ? 'Keluarga ${(profile['full_name'] as String).split(' ').first}'
+      : 'Keluargaku';
+
+  final created = await supabase
+      .from('family_groups')
+      .insert({'admin_id': user.id, 'name': groupName})
+      .select('id, name, invite_code, created_at')
+      .single();
+
+  return created as Map<String, dynamic>;
+});
+
+// ── Screen ────────────────────────────────────────────────────
 class FamilyScreen extends ConsumerWidget {
   const FamilyScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme      = Theme.of(context);
-    final groupAsync = ref.watch(myFamilyGroupProvider);
+    final groupAsync = ref.watch(familyGroupProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Keluarga'),
         actions: [
-          groupAsync.when(
-            data: (group) => group == null
-                ? TextButton.icon(
-                    onPressed: () => _showCreateOrJoinSheet(context, ref),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Buat Grup'),
-                  )
-                : const SizedBox(),
-            loading: () => const SizedBox(),
-            error: (_, __) => const SizedBox(),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: () => ref.invalidate(familyGroupProvider),
           ),
         ],
       ),
       body: groupAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
-        data: (group) => group == null
-            ? _EmptyGroupState(
-                onTap: () => _showCreateOrJoinSheet(context, ref))
-            : _GroupContent(group: group),
+        error: (e, _) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                const SizedBox(height: 12),
+                Text('Gagal memuat data.\n$e',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 13)),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () => ref.invalidate(familyGroupProvider),
+                  child: const Text('Coba Lagi'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        data: (group) => _FamilyContent(group: group),
       ),
-    );
-  }
-
-  void _showCreateOrJoinSheet(BuildContext context, WidgetRef ref) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => const _CreateOrJoinSheet(),
     );
   }
 }
 
-// ── Empty state ───────────────────────────────────────────────
-class _EmptyGroupState extends StatelessWidget {
-  final VoidCallback onTap;
-  const _EmptyGroupState({required this.onTap});
+// ── Main content ──────────────────────────────────────────────
+class _FamilyContent extends StatelessWidget {
+  final Map<String, dynamic> group;
+  const _FamilyContent({required this.group});
+
+  @override
+  Widget build(BuildContext context) {
+    final code = group['invite_code'] as String? ?? '-';
+    final name = group['name'] as String? ?? 'Keluarga';
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _InfoBanner(groupName: name),
+          const SizedBox(height: 24),
+          _QrCard(code: code),
+          const SizedBox(height: 16),
+          _CodeCard(code: code),
+          const SizedBox(height: 24),
+          _HowToUseSection(),
+          const SizedBox(height: 24),
+          _ComingSoonSection(),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Info banner ───────────────────────────────────────────────
+class _InfoBanner extends StatelessWidget {
+  final String groupName;
+  const _InfoBanner({required this.groupName});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 80, height: 80,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.people_outline, size: 40,
-                color: theme.colorScheme.primary),
-            ),
-            const SizedBox(height: 20),
-            const Text('Belum ada grup keluarga',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 8),
-            Text(
-              'Buat grup baru atau bergabung dengan kode undangan',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: theme.colorScheme.onSurface.withOpacity(0.5))),
-            const SizedBox(height: 28),
-            ElevatedButton.icon(
-              onPressed: onTap,
-              icon: const Icon(Icons.add),
-              label: const Text('Buat atau Gabung Grup'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ── Group content ─────────────────────────────────────────────
-class _GroupContent extends ConsumerWidget {
-  final FamilyGroup group;
-  const _GroupContent({required this.group});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme   = Theme.of(context);
-    final members = ref.watch(familyMembersProvider);
-    final devices = ref.watch(familyDevicesProvider);
-
-    return ListView(
+    return Container(
       padding: const EdgeInsets.all(16),
-      children: [
-        // ── Info grup ──────────────────────────────
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.primary.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: theme.colorScheme.primary.withOpacity(0.3)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 44, height: 44,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary.withOpacity(0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(Icons.people,
-                      color: theme.colorScheme.primary, size: 22),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(group.name,
-                          style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w700)),
-                        Text('Grup Keluarga',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: theme.colorScheme.onSurface.withOpacity(0.5))),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              // Kode undangan
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.vpn_key_outlined, size: 16,
-                      color: theme.colorScheme.onSurface.withOpacity(0.5)),
-                    const SizedBox(width: 8),
-                    Text('Kode: ',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: theme.colorScheme.onSurface.withOpacity(0.5))),
-                    Text(group.inviteCode,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: theme.colorScheme.primary,
-                        letterSpacing: 2)),
-                    const Spacer(),
-                    GestureDetector(
-                      onTap: () {
-                        Clipboard.setData(
-                          ClipboardData(text: group.inviteCode));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Kode disalin!'),
-                            duration: Duration(seconds: 1)));
-                      },
-                      child: Icon(Icons.copy, size: 16,
-                        color: theme.colorScheme.primary),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-
-        // ── Anggota ────────────────────────────────
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text('Anggota',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-            members.when(
-              data: (m) => Text('${m.length} orang',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: theme.colorScheme.onSurface.withOpacity(0.5))),
-              loading: () => const SizedBox(),
-              error: (_, __) => const SizedBox(),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        members.when(
-          loading: () => const _SkeletonBox(height: 80),
-          error: (_, __) => const Center(child: Text('Gagal memuat')),
-          data: (list) => Column(
-            children: list.map((m) => _MemberTile(member: m)).toList(),
-          ),
-        ),
-        const SizedBox(height: 20),
-
-        // ── Monitoring kesehatan gelang anggota ────
-        const Text('Pantau Kesehatan Anggota',
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-        const SizedBox(height: 4),
-        Text(
-          'Hanya gelang yang dibagikan ke grup yang tampil',
-          style: TextStyle(
-            fontSize: 12,
-            color: theme.colorScheme.onSurface.withOpacity(0.4))),
-        const SizedBox(height: 10),
-        devices.when(
-          loading: () => const _SkeletonBox(height: 120),
-          error: (_, __) => const Center(child: Text('Gagal memuat')),
-          data: (list) => list.isEmpty
-              ? Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surface,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.watch_off_outlined,
-                        color: theme.colorScheme.onSurface.withOpacity(0.3)),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Belum ada gelang yang dibagikan ke grup ini',
-                          style: TextStyle(
-                            color: theme.colorScheme.onSurface.withOpacity(0.5))),
-                      ),
-                    ],
-                  ),
-                )
-              : Column(
-                  children: list
-                      .map((d) => _DeviceHealthCard(device: d))
-                      .toList(),
-                ),
-        ),
-        const SizedBox(height: 20),
-
-        // ── Keluar grup ────────────────────────────
-        TextButton(
-          onPressed: () => _confirmLeave(context, ref),
-          style: TextButton.styleFrom(
-            foregroundColor: Colors.red,
-            minimumSize: const Size(double.infinity, 48),
-            shape: RoundedRectangleBorder(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.primary.withOpacity(0.2)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withOpacity(0.15),
               borderRadius: BorderRadius.circular(12),
-              side: const BorderSide(color: Colors.red, width: 0.5)),
+            ),
+            child: Icon(Icons.people_outline,
+                color: theme.colorScheme.primary, size: 22),
           ),
-          child: const Text('Keluar dari Grup',
-            style: TextStyle(fontWeight: FontWeight.w600)),
-        ),
-      ],
-    );
-  }
-
-  void _confirmLeave(BuildContext context, WidgetRef ref) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16)),
-        title: const Text('Keluar Grup',
-          style: TextStyle(fontWeight: FontWeight.w700)),
-        content: const Text(
-          'Kamu yakin ingin keluar dari grup keluarga ini?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Batal')),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await ref
-                  .read(familyGroupNotifierProvider.notifier)
-                  .leaveGroup(group.id);
-            },
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Keluar',
-              style: TextStyle(fontWeight: FontWeight.w600))),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  groupName,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Bagikan kode atau QR di bawah kepada anggota keluarga agar mereka bisa melihat data kesehatan gelang kamu secara real-time.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.5,
+                    color: theme.colorScheme.onSurface.withOpacity(0.65),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-// ── Device health card — tampilkan data kesehatan realtime ─────
-class _DeviceHealthCard extends ConsumerWidget {
-  final FamilyDevice device;
-  const _DeviceHealthCard({required this.device});
+// ── QR Card ───────────────────────────────────────────────────
+class _QrCard extends StatelessWidget {
+  final String code;
+  const _QrCard({required this.code});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme  = Theme.of(context);
-    final health = ref.watch(memberHealthProvider(device.id));
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final qrData = 'gelangsehat://join?code=$code';
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: theme.colorScheme.onSurface.withOpacity(0.06)),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        children: [
+          Text(
+            'QR Code Keluarga',
+            style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 15,
+                color: theme.colorScheme.onSurface),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Scan QR ini untuk bergabung memantau gelang',
+            style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onSurface.withOpacity(0.45)),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+
+          // Latar putih supaya QR terbaca di dark mode
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: QrImageView(
+              data: qrData,
+              version: QrVersions.auto,
+              size: 200,
+              eyeStyle: const QrEyeStyle(
+                  eyeShape: QrEyeShape.square, color: Color(0xFF000000)),
+              dataModuleStyle: const QrDataModuleStyle(
+                  dataModuleShape: QrDataModuleShape.square,
+                  color: Color(0xFF000000)),
+              errorCorrectionLevel: QrErrorCorrectLevel.M,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            code,
+            style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1DB954),
+                letterSpacing: 2),
+          ),
+          const SizedBox(height: 20),
+
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => _share(context, code),
+              icon: const Icon(Icons.share_outlined, size: 16),
+              label: const Text('Bagikan QR & Kode'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _share(BuildContext context, String code) async {
+    await Share.share(
+      'Gunakan kode ini untuk melihat kondisi kesehatanku via Gelang Sehat:\n\nKode: $code\n\nBuka app → "Lihat Kondisi Keluarga" → masukkan kode.',
+      subject: 'Kode Pemantauan Gelang Sehat',
+    );
+  }
+}
+
+// ── Kode card ─────────────────────────────────────────────────
+class _CodeCard extends StatelessWidget {
+  final String code;
+  const _CodeCard({required this.code});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
-          Row(
-            children: [
-              Container(
-                width: 38, height: 38,
-                decoration: BoxDecoration(
-                  color: device.isOnline
-                      ? const Color(0xFF1DB954).withOpacity(0.1)
-                      : theme.colorScheme.onSurface.withOpacity(0.06),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(Icons.watch, size: 20,
-                  color: device.isOnline
-                      ? const Color(0xFF1DB954)
-                      : theme.colorScheme.onSurface.withOpacity(0.3)),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(device.ownerName,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700, fontSize: 14)),
-                    Text(device.deviceName,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: theme.colorScheme.onSurface.withOpacity(0.4))),
-                  ],
-                ),
-              ),
-              // Online badge
-              Row(
-                children: [
-                  Container(
-                    width: 7, height: 7,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: device.isOnline
-                          ? const Color(0xFF1DB954)
-                          : Colors.red),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    device.isOnline ? 'Online' : 'Offline',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: device.isOnline
-                          ? const Color(0xFF1DB954)
-                          : Colors.red)),
-                ],
-              ),
-            ],
-          ),
-
-          // Health data
-          const SizedBox(height: 12),
-          health.when(
-            loading: () => const LinearProgressIndicator(),
-            error: (_, __) => Text('Tidak dapat memuat data',
-              style: TextStyle(
-                fontSize: 12,
-                color: theme.colorScheme.onSurface.withOpacity(0.4))),
-            data: (data) => data == null
-                ? Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.onSurface.withOpacity(0.05),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text('Belum ada data kesehatan',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: theme.colorScheme.onSurface.withOpacity(0.4))),
-                  )
-                : Row(
-                    children: [
-                      // BPM
-                      Expanded(
-                        child: _HealthMetric(
-                          icon: Icons.favorite,
-                          color: _bpmColor(data['bpm']),
-                          value: '${data['bpm']}',
-                          unit: 'BPM',
-                        ),
-                      ),
-                      // SpO2
-                      Expanded(
-                        child: _HealthMetric(
-                          icon: Icons.air,
-                          color: _spo2Color(data['spo2']),
-                          value: '${data['spo2']}',
-                          unit: 'SpO2%',
-                        ),
-                      ),
-                      // Steps
-                      Expanded(
-                        child: _HealthMetric(
-                          icon: Icons.directions_walk,
-                          color: const Color(0xFF0A84FF),
-                          value: NumberFormat('#,###').format(data['steps']),
-                          unit: 'Langkah',
-                        ),
-                      ),
-                      // Baterai
-                      if (device.batteryPct != null)
-                        Expanded(
-                          child: _HealthMetric(
-                            icon: Icons.battery_std,
-                            color: _batteryColor(device.batteryPct!),
-                            value: '${device.batteryPct}',
-                            unit: 'Baterai%',
-                          ),
-                        ),
-                    ],
-                  ),
-          ),
-
-          // Waktu update terakhir
-          health.whenData((data) {
-            if (data == null) return const SizedBox();
-            final time = DateTime.tryParse(data['recorded_at'] ?? '');
-            if (time == null) return const SizedBox();
-            return Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                'Update: ${DateFormat('HH:mm').format(time.toLocal())}',
+          Row(children: [
+            Icon(Icons.vpn_key_outlined,
+                size: 16,
+                color: theme.colorScheme.onSurface.withOpacity(0.5)),
+            const SizedBox(width: 6),
+            Text('Kode Keluarga',
                 style: TextStyle(
-                  fontSize: 11,
-                  color: theme.colorScheme.onSurface.withOpacity(0.3))),
-            );
-          }).value ?? const SizedBox(),
+                    fontSize: 13,
+                    color: theme.colorScheme.onSurface.withOpacity(0.5),
+                    fontWeight: FontWeight.w500)),
+          ]),
+          const SizedBox(height: 14),
+
+          Row(children: [
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: theme.colorScheme.primary.withOpacity(0.2)),
+                ),
+                child: Text(
+                  code,
+                  style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 4,
+                      color: theme.colorScheme.primary),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            GestureDetector(
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: code));
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: const Row(children: [
+                    Icon(Icons.check_circle, color: Colors.black),
+                    SizedBox(width: 10),
+                    Text('Kode disalin!'),
+                  ]),
+                  backgroundColor: const Color(0xFF1DB954),
+                  duration: const Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ));
+              },
+              child: Container(
+                width: 48,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.copy_rounded,
+                    color: Colors.black, size: 20),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 14),
+
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () async {
+                await Share.share(
+                  'Gunakan kode ini untuk melihat kondisi kesehatanku via Gelang Sehat:\n\nKode: $code\n\nBuka app → "Lihat Kondisi Keluarga" → masukkan kode.',
+                  subject: 'Kode Pemantauan Gelang Sehat',
+                );
+              },
+              icon: const Icon(Icons.share, size: 16),
+              label: const Text('Bagikan Kode'),
+              style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14)),
+            ),
+          ),
         ],
       ),
     );
   }
+}
 
-  Color _bpmColor(dynamic bpm) {
-    if (bpm == null) return Colors.grey;
-    final v = bpm as int;
-    if (v > 150 || v < 45) return const Color(0xFFFF3B30);
-    if (v > 120 || v < 55) return const Color(0xFFFF9F0A);
-    return const Color(0xFF1DB954);
-  }
-
-  Color _spo2Color(dynamic spo2) {
-    if (spo2 == null) return Colors.grey;
-    final v = spo2 as int;
-    if (v < 90) return const Color(0xFFFF3B30);
-    if (v < 95) return const Color(0xFFFF9F0A);
-    return const Color(0xFF1DB954);
-  }
-
-  Color _batteryColor(int pct) {
-    if (pct < 20) return const Color(0xFFFF3B30);
-    if (pct < 50) return const Color(0xFFFF9F0A);
-    return const Color(0xFF1DB954);
+// ── Cara pakai ────────────────────────────────────────────────
+class _HowToUseSection extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Cara Pakai',
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: const Column(children: [
+            _StepItem(
+              step: '1',
+              icon: Icons.share_outlined,
+              title: 'Bagikan kode atau QR',
+              desc: 'Kirim kode atau screenshot QR kepada anggota keluarga.',
+              isLast: false,
+            ),
+            _StepItem(
+              step: '2',
+              icon: Icons.phone_android_outlined,
+              title: 'Keluarga buka app',
+              desc: 'Pilih "Lihat Kondisi Keluarga" di halaman login, lalu masukkan kode.',
+              isLast: false,
+            ),
+            _StepItem(
+              step: '3',
+              icon: Icons.monitor_heart_outlined,
+              title: 'Pantau bersama',
+              desc: 'Mereka bisa melihat detak jantung, SpO2, langkah kaki, dan riwayat kesehatan secara real-time.',
+              isLast: true,
+            ),
+          ]),
+        ),
+      ],
+    );
   }
 }
 
-// ── Health metric item ────────────────────────────────────────
-class _HealthMetric extends StatelessWidget {
+class _StepItem extends StatelessWidget {
+  final String step;
   final IconData icon;
-  final Color color;
-  final String value;
-  final String unit;
-  const _HealthMetric({
-    required this.icon, required this.color,
-    required this.value, required this.unit,
+  final String title;
+  final String desc;
+  final bool isLast;
+  const _StepItem({
+    required this.step,
+    required this.icon,
+    required this.title,
+    required this.desc,
+    required this.isLast,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withOpacity(0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(step,
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: theme.colorScheme.primary)),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Icon(icon, size: 15, color: theme.colorScheme.primary),
+                const SizedBox(width: 6),
+                Text(title,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 13)),
+              ]),
+              const SizedBox(height: 4),
+              Text(desc,
+                  style: TextStyle(
+                      fontSize: 12,
+                      height: 1.5,
+                      color: theme.colorScheme.onSurface.withOpacity(0.55))),
+            ]),
+          ),
+        ]),
+      ),
+      if (!isLast)
+        Divider(
+            height: 1,
+            indent: 62,
+            color: theme.colorScheme.onSurface.withOpacity(0.07)),
+    ]);
+  }
+}
+
+// ── Coming soon ───────────────────────────────────────────────
+class _ComingSoonSection extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: color, size: 16),
-        const SizedBox(height: 4),
-        Text(value,
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-            color: color)),
-        Text(unit,
-          style: TextStyle(
-            fontSize: 10,
-            color: theme.colorScheme.onSurface.withOpacity(0.4))),
+        Row(children: [
+          const Text('Segera Hadir',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFF9F0A).withOpacity(0.15),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Text('Dalam Pengembangan',
+                style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFFFF9F0A))),
+          ),
+        ]),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: const Column(children: [
+            _ComingFeature(
+              icon: Icons.favorite_outline,
+              title: 'Monitor Kesehatan Real-time',
+              desc: 'Lihat detak jantung & SpO2 anggota keluarga secara langsung',
+              isLast: false,
+            ),
+            _ComingFeature(
+              icon: Icons.bar_chart_outlined,
+              title: 'Riwayat Kesehatan Keluarga',
+              desc: 'Akses grafik dan statistik kesehatan harian/mingguan',
+              isLast: false,
+            ),
+            _ComingFeature(
+              icon: Icons.notifications_outlined,
+              title: 'Notifikasi Darurat',
+              desc: 'Terima alert jika kondisi anggota keluarga melampaui batas normal',
+              isLast: false,
+            ),
+            _ComingFeature(
+              icon: Icons.people_outline,
+              title: 'Manajemen Anggota',
+              desc: 'Kelola siapa saja yang bisa melihat data kesehatanmu',
+              isLast: true,
+            ),
+          ]),
+        ),
       ],
     );
   }
 }
 
-// ── Member tile ───────────────────────────────────────────────
-class _MemberTile extends StatelessWidget {
-  final FamilyMember member;
-  const _MemberTile({required this.member});
+class _ComingFeature extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String desc;
+  final bool isLast;
+  const _ComingFeature({
+    required this.icon,
+    required this.title,
+    required this.desc,
+    required this.isLast,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final theme   = Theme.of(context);
-    final isAdmin = member.role == 'admin';
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 20,
-            backgroundColor: theme.colorScheme.primary.withOpacity(0.15),
-            child: Text(
-              member.fullName[0].toUpperCase(),
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: theme.colorScheme.primary)),
+    final theme = Theme.of(context);
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.onSurface.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon,
+                size: 18,
+                color: theme.colorScheme.onSurface.withOpacity(0.35)),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(member.fullName,
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
-                Text(_formatDate(member.joinedAt),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title,
                   style: TextStyle(
-                    fontSize: 12,
-                    color: theme.colorScheme.onSurface.withOpacity(0.4))),
-              ],
-            ),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                      color: theme.colorScheme.onSurface.withOpacity(0.6))),
+              const SizedBox(height: 2),
+              Text(desc,
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: theme.colorScheme.onSurface.withOpacity(0.35),
+                      height: 1.4)),
+            ]),
           ),
-          if (isAdmin)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text('Admin',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.primary)),
-            ),
-        ],
+          Icon(Icons.lock_outline,
+              size: 14,
+              color: theme.colorScheme.onSurface.withOpacity(0.2)),
+        ]),
       ),
-    );
-  }
-
-  String _formatDate(DateTime date) {
-    final diff = DateTime.now().difference(date).inDays;
-    if (diff == 0) return 'Bergabung hari ini';
-    if (diff < 30) return 'Bergabung $diff hari lalu';
-    return 'Bergabung ${diff ~/ 30} bulan lalu';
-  }
-}
-
-// ── Create or join sheet ──────────────────────────────────────
-class _CreateOrJoinSheet extends ConsumerStatefulWidget {
-  const _CreateOrJoinSheet();
-
-  @override
-  ConsumerState<_CreateOrJoinSheet> createState() => _CreateOrJoinSheetState();
-}
-
-class _CreateOrJoinSheetState extends ConsumerState<_CreateOrJoinSheet> {
-  bool _isCreate = true;
-  final _nameCtrl = TextEditingController();
-  final _codeCtrl = TextEditingController();
-
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    _codeCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme     = Theme.of(context);
-    final notifier  = ref.watch(familyGroupNotifierProvider);
-    final isLoading = notifier.isLoading;
-
-    return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: theme.scaffoldBackgroundColor,
-          borderRadius:
-              const BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Handle
-            Container(
-              width: 40, height: 4,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.onSurface.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(2)),
-            ),
-            const SizedBox(height: 20),
-
-            // Toggle
-            Container(
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surface,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  _SheetTab(
-                    label: 'Buat Grup',
-                    selected: _isCreate,
-                    onTap: () => setState(() => _isCreate = true),
-                  ),
-                  _SheetTab(
-                    label: 'Gabung Grup',
-                    selected: !_isCreate,
-                    onTap: () => setState(() => _isCreate = false),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            if (_isCreate) ...[
-              TextFormField(
-                controller: _nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Nama Grup',
-                  hintText: 'Contoh: Keluarga Besar Zaini',
-                  prefixIcon: Icon(Icons.people_outline),
-                ),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: isLoading ? null : () async {
-                  if (_nameCtrl.text.isEmpty) return;
-                  await ref
-                      .read(familyGroupNotifierProvider.notifier)
-                      .createGroup(_nameCtrl.text.trim());
-
-                  if (!context.mounted) return;
-                  final state = ref.read(familyGroupNotifierProvider);
-                  if (state.hasError) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text(state.error.toString()),
-                      backgroundColor: Colors.red));
-                  } else {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Grup berhasil dibuat! 🎉'),
-                        backgroundColor: Color(0xFF1DB954)));
-                  }
-                },
-                child: isLoading
-                    ? const SizedBox(width: 22, height: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5, color: Colors.black))
-                    : const Text('Buat Grup'),
-              ),
-            ] else ...[
-              TextFormField(
-                controller: _codeCtrl,
-                textCapitalization: TextCapitalization.characters,
-                decoration: const InputDecoration(
-                  labelText: 'Kode Undangan',
-                  hintText: 'Contoh: AB12CD34',
-                  prefixIcon: Icon(Icons.vpn_key_outlined),
-                ),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: isLoading ? null : () async {
-                  if (_codeCtrl.text.isEmpty) return;
-                  await ref
-                      .read(familyGroupNotifierProvider.notifier)
-                      .joinGroup(_codeCtrl.text.trim());
-
-                  if (!context.mounted) return;
-                  final state = ref.read(familyGroupNotifierProvider);
-                  if (state.hasError) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text(state.error.toString()),
-                      backgroundColor: Colors.red));
-                  } else {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Berhasil bergabung ke grup! 🎉'),
-                        backgroundColor: Color(0xFF1DB954)));
-                  }
-                },
-                child: isLoading
-                    ? const SizedBox(width: 22, height: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5, color: Colors.black))
-                    : const Text('Gabung Grup'),
-              ),
-            ],
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SheetTab extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _SheetTab({
-    required this.label, required this.selected, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: selected ? theme.colorScheme.primary : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
-              color: selected
-                  ? Colors.black
-                  : theme.colorScheme.onSurface.withOpacity(0.5))),
-        ),
-      ),
-    );
-  }
-}
-
-class _SkeletonBox extends StatelessWidget {
-  final double height;
-  const _SkeletonBox({required this.height});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      height: height,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-      ),
-    );
+      if (!isLast)
+        Divider(
+            height: 1,
+            indent: 68,
+            color: theme.colorScheme.onSurface.withOpacity(0.06)),
+    ]);
   }
 }
