@@ -12,30 +12,47 @@ import '../../features/history/screens/history_screen.dart';
 import '../../features/family/screens/family_screen.dart';
 import '../../features/alerts/screens/alerts_screen.dart';
 import '../widgets/main_shell.dart';
+import '../../features/guest/providers/guest_session_provider.dart';
 
-// Listenable yang listen ke Supabase auth state changes
-class _AuthChangeNotifier extends ChangeNotifier {
-  _AuthChangeNotifier() {
+class _RouterNotifier extends ChangeNotifier {
+  final Ref _ref;
+  
+  _RouterNotifier(this._ref) {
+    // Listen auth state changes
     Supabase.instance.client.auth.onAuthStateChange.listen((_) {
+      notifyListeners();
+    });
+    
+    // Listen guest session changes
+    _ref.listen(guestSessionProvider, (_, __) {
       notifyListeners();
     });
   }
 }
 
-final _authNotifier = _AuthChangeNotifier();
-
 final routerProvider = Provider<GoRouter>((ref) {
+  final notifier = _RouterNotifier(ref);
+  
   return GoRouter(
     initialLocation: '/dashboard',
-    refreshListenable: _authNotifier, // <-- ini yang bikin redirect otomatis
+    refreshListenable: notifier,
     redirect: (context, state) {
-      final session = Supabase.instance.client.auth.currentSession;
+      final session   = Supabase.instance.client.auth.currentSession;
       final isLoggedIn = session != null;
-      final isAuthRoute = state.matchedLocation == '/login' ||
-          state.matchedLocation == '/register';
+      
+      // Baca guest session langsung dari provider
+      final guestSession = ref.read(guestSessionProvider);
+      final isGuest      = guestSession != null;
 
-      if (!isLoggedIn && !isAuthRoute) return '/login';
-      if (isLoggedIn && isAuthRoute) return '/dashboard';
+      final loc         = state.matchedLocation;
+      final isAuthRoute = loc == '/login' || loc == '/register';
+
+      // Sudah login atau guest → jangan ke auth route
+      if ((isLoggedIn || isGuest) && isAuthRoute) return '/dashboard';
+      
+      // Belum login dan bukan guest → paksa ke login
+      if (!isLoggedIn && !isGuest && !isAuthRoute) return '/login';
+      
       return null;
     },
     routes: [

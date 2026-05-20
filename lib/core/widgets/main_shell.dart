@@ -22,68 +22,32 @@ class MainShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final location  = GoRouterState.of(context).matchedLocation;
-    final isGuest   = ref.watch(isGuestModeProvider);
-    final session   = ref.watch(guestSessionProvider);
-    final theme     = Theme.of(context);
-
+    final location     = GoRouterState.of(context).matchedLocation;
+    final isGuest      = ref.watch(isGuestModeProvider);
+    final session      = ref.watch(guestSessionProvider);
+    final theme        = Theme.of(context);
     final currentIndex = _locationToIndex(location, isGuest);
 
     return Scaffold(
-      body: Stack(
-        children: [
-          child,
-          // ── Guest banner ───────────────────────────
-          if (isGuest)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: SafeArea(
-                bottom: false,
-                child: Container(
-                  margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1DB954).withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: const Color(0xFF1DB954).withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.people_outline,
-                          size: 15, color: Color(0xFF1DB954)),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Mode Keluarga — ${session?.ownerName ?? 'Pemilik Gelang'}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF1DB954),
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () => _confirmLeave(context, ref),
-                        child: Text(
-                          'Keluar',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.red.withOpacity(0.8),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+      // Banner diletakkan sebagai bagian body Column,
+      // bukan Stack — supaya tidak nabrak konten di bawahnya
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            // ── Guest banner (hanya muncul saat mode keluarga) ──
+            if (isGuest)
+              _GuestBanner(
+                ownerName: session?.ownerName ?? 'Pemilik Gelang',
+                onLeave: () => _confirmLeave(context, ref),
               ),
-            ),
-        ],
+
+            // ── Konten halaman utama ─────────────────────────
+            Expanded(child: child),
+          ],
+        ),
       ),
+
       bottomNavigationBar: NavigationBar(
         selectedIndex: currentIndex,
         backgroundColor: theme.colorScheme.surface,
@@ -177,6 +141,103 @@ class MainShell extends ConsumerWidget {
             style: TextButton.styleFrom(foregroundColor: Colors.red),
             child: const Text('Keluar',
                 style: TextStyle(fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Guest banner widget ───────────────────────────────────────
+class _GuestBanner extends StatelessWidget {
+  final String ownerName;
+  final VoidCallback onLeave;
+
+  const _GuestBanner({
+    required this.ownerName,
+    required this.onLeave,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1DB954).withOpacity(0.12),
+        border: Border(
+          bottom: BorderSide(
+            color: const Color(0xFF1DB954).withOpacity(0.2),
+            width: 1,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          // Icon
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: const Color(0xFF1DB954).withOpacity(0.2),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.people_outline,
+              size: 15,
+              color: Color(0xFF1DB954),
+            ),
+          ),
+          const SizedBox(width: 8),
+
+          // Teks
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Mode Pemantauan Keluarga',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1DB954),
+                    letterSpacing: 0.2,
+                  ),
+                ),
+                Text(
+                  ownerName,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: const Color(0xFF1DB954).withOpacity(0.8),
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+
+          // Tombol keluar
+          GestureDetector(
+            onTap: onLeave,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                    color: Colors.red.withOpacity(0.25), width: 1),
+              ),
+              child: const Text(
+                'Keluar',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.red,
+                ),
+              ),
+            ),
           ),
         ],
       ),

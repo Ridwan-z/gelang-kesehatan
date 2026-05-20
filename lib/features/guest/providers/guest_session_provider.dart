@@ -1,6 +1,7 @@
-// lib/core/providers/guest_session_provider.dart
+// lib/features/guest/providers/guest_session_provider.dart
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 // ── Model ─────────────────────────────────────────────────────
 class GuestSession {
@@ -97,50 +98,104 @@ final guestSessionProvider =
         GuestSessionNotifier.new);
 
 // ── Helper provider ───────────────────────────────────────────
-// true = sedang dalam mode guest
 final isGuestModeProvider = Provider<bool>((ref) {
   return ref.watch(guestSessionProvider) != null;
 });
 
-// ── Service: validasi kode dari Supabase ──────────────────────
-// Dummy dulu — nanti diganti query Supabase
+// ── Service: query ke Supabase ────────────────────────────────
 class GuestJoinService {
+  static final _supabase = Supabase.instance.client;
+
   static Future<GuestSession?> joinWithCode(String code) async {
-    await Future.delayed(const Duration(seconds: 1));
+  try {
+    final cleanCode = code.trim().toLowerCase();
+    print('=== DEBUG joinWithCode ===');
+    print('Input code: "$code"');
+    print('Clean code: "$cleanCode"');
+    print('Code length: ${cleanCode.length}');
 
-    // Dummy: kode valid = 'KELUARGA-001'
-    // Nanti ganti dengan query:
-    // SELECT fg.id, fg.invite_code, d.id as device_id,
-    //        p.full_name as owner_name, d.name as device_name
-    // FROM family_groups fg
-    // JOIN devices d ON d.owner_id = fg.admin_id
-    // JOIN profiles p ON p.id = fg.admin_id
-    // WHERE fg.invite_code = $code
-    // LIMIT 1
+    final groupRes = await _supabase
+        .from('family_groups')
+        .select('id, name, admin_id, invite_code')
+        .eq('invite_code', cleanCode)
+        .limit(1);
 
-    if (code.toUpperCase() == 'KELUARGA-001') {
-      return const GuestSession(
-        deviceId:   'dummy-device-1',
-        groupId:    'dummy-group-1',
-        inviteCode: 'KELUARGA-001',
-        ownerName:  'Pemilik Gelang',
-        deviceName: 'Gelangku',
-      );
+    print('groupRes: $groupRes');
+    print('groupRes type: ${groupRes.runtimeType}');
+    print('groupRes length: ${(groupRes as List).length}');
+
+    if (groupRes.isEmpty) {
+      print('ERROR: group tidak ditemukan!');
+      return null;
     }
 
-    // Kode tidak valid
+    final group      = groupRes.first as Map<String, dynamic>;
+    final groupId    = group['id'] as String;
+    final adminId    = group['admin_id'] as String;
+    print('groupId: $groupId');
+    print('adminId: $adminId');
+
+    final profileRes = await _supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', adminId)
+        .limit(1);
+
+    print('profileRes: $profileRes');
+
+    final ownerName = (profileRes as List).isNotEmpty
+        ? (profileRes.first['full_name'] as String? ?? 'Pemilik')
+        : 'Pemilik';
+
+    final deviceRes = await _supabase
+        .from('devices')
+        .select('id, name')
+        .eq('owner_id', adminId)
+        .limit(1);
+
+    print('deviceRes: $deviceRes');
+
+    String deviceId;
+    String deviceName;
+
+    if ((deviceRes as List).isNotEmpty) {
+      deviceId   = deviceRes.first['id'] as String;
+      deviceName = deviceRes.first['name'] as String? ?? 'Gelang';
+    } else {
+      deviceId   = groupId;
+      deviceName = 'Gelang';
+    }
+
+    print('=== SUCCESS: session dibuat ===');
+    return GuestSession(
+      deviceId:   deviceId,
+      groupId:    groupId,
+      inviteCode: cleanCode,
+      ownerName:  ownerName,
+      deviceName: deviceName,
+    );
+  } catch (e, st) {
+    print('=== ERROR joinWithCode ===');
+    print('Error: $e');
+    print('Stacktrace: $st');
     return null;
   }
+}
 
   static Future<bool> validateCode(String code, String groupId) async {
-    await Future.delayed(const Duration(milliseconds: 500));
+    try {
+      final res = await _supabase
+          .from('family_groups')
+          .select('invite_code')
+          .eq('id', groupId)
+          .limit(1);
 
-    // Dummy: cek apakah kode masih valid untuk grup ini
-    // Nanti ganti dengan:
-    // SELECT invite_code FROM family_groups WHERE id = $groupId
-    // Lalu bandingkan dengan $code
+      if (res == null || (res as List).isEmpty) return false;
 
-    // Simulasi: kode KELUARGA-001 selalu valid untuk dummy
-    return code.toUpperCase() == 'KELUARGA-001';
+      final dbCode = res.first['invite_code'] as String? ?? '';
+      return dbCode == code.trim().toLowerCase();
+    } catch (e) {
+      return false;
+    }
   }
 }
