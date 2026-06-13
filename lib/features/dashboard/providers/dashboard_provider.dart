@@ -1,56 +1,55 @@
 // lib/features/dashboard/providers/dashboard_provider.dart
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-// ── Models ────────────────────────────────────────────────────
-class HeartRateData {
-  final int bpm;
-  final int spo2;
-  final DateTime recordedAt;
-  const HeartRateData({
-    required this.bpm,
-    required this.spo2,
-    required this.recordedAt,
-  });
+import '../../../core/services/mqtt_service.dart';
+import '../../auth/providers/auth_provider.dart';
 
-  factory HeartRateData.fromMap(Map<String, dynamic> m) => HeartRateData(
-        bpm:        m['bpm'] as int,
-        spo2:       m['spo2'] as int,
-        recordedAt: DateTime.parse(m['recorded_at']),
-      );
-}
+export '../../../core/services/mqtt_service.dart'
+    show HeartRateData, ActivityData, DeviceStatusData;
 
-class DeviceStatus {
+// ── Device info ───────────────────────────────────────────────
+class DeviceInfo {
   final String id;
   final String name;
   final bool isOnline;
   final int batteryPct;
   final DateTime? lastSeenAt;
-  const DeviceStatus({
+
+  const DeviceInfo({
     required this.id,
     required this.name,
     required this.isOnline,
     required this.batteryPct,
     this.lastSeenAt,
   });
+
+  factory DeviceInfo.fromMap(Map<String, dynamic> m) => DeviceInfo(
+        id:         m['id'] as String,
+        name:       m['name'] as String? ?? 'Gelangku',
+        isOnline:   m['is_online'] as bool? ?? false,
+        batteryPct: (m['battery_pct'] as num?)?.toInt() ?? 0,
+        lastSeenAt: m['last_seen_at'] != null
+            ? DateTime.parse(m['last_seen_at'])
+            : null,
+      );
 }
 
-// ── DUMMY DATA ────────────────────────────────────────────────
+// ── Device list ───────────────────────────────────────────────
+final deviceListProvider = FutureProvider<List<DeviceInfo>>((ref) async {
+  final supabase = ref.watch(supabaseProvider);
+  final user     = supabase.auth.currentUser;
+  if (user == null) return [];
 
-// Device dummy
-final deviceListProvider = FutureProvider<List<DeviceStatus>>((ref) async {
-  await Future.delayed(const Duration(milliseconds: 500));
-  return [
-    DeviceStatus(
-      id:          'dummy-device-1',
-      name:        'Gelangku',
-      isOnline:    true,
-      batteryPct:  78,
-      lastSeenAt:  DateTime.now(),
-    ),
-  ];
+  final res = await supabase
+      .from('devices')
+      .select('id, name, is_online, battery_pct, last_seen_at')
+      .eq('owner_id', user.id)
+      .order('created_at');
+
+  return (res as List).map((e) => DeviceInfo.fromMap(e)).toList();
 });
 
-// Selected device
+// ── Selected device ───────────────────────────────────────────
 class SelectedDeviceIdNotifier extends Notifier<String?> {
   @override
   String? build() {
@@ -59,63 +58,149 @@ class SelectedDeviceIdNotifier extends Notifier<String?> {
     return null;
   }
 
-  void select(String? deviceId) => state = deviceId;
+  void select(String? id) => state = id;
 }
 
 final selectedDeviceIdProvider =
     NotifierProvider<SelectedDeviceIdNotifier, String?>(
         SelectedDeviceIdNotifier.new);
 
-// Latest heart rate dummy
+// ── Latest HR — MQTT realtime, fallback data terakhir Supabase ─
 final latestHeartRateProvider = StreamProvider<HeartRateData?>((ref) async* {
-  while (true) {
-    await Future.delayed(const Duration(seconds: 3));
-    final bpm  = 60 + (DateTime.now().second % 40);
-    final spo2 = 95 + (DateTime.now().second % 5);
-    yield HeartRateData(
-      bpm:        bpm,
-      spo2:       spo2,
-      recordedAt: DateTime.now(),
-    );
+  final mqtt     = ref.watch(mqttServiceProvider);
+  final supabase = ref.watch(supabaseProvider);
+  final deviceId = ref.watch(selectedDeviceIdProvider);
+
+  // Ambil data terakhir dari Supabase dulu sebagai initial value
+  if (deviceId != null) {
+    try {
+      final res = await supabase
+          .from('heart_rate_logs')
+          .select('bpm, spo2, recorded_at')
+          .eq('device_id', deviceId)
+          .order('recorded_at', ascending: false)
+          .limit(1);
+
+      if ((res as List).isNotEmpty) {
+        yield HeartRateData.fromJson(res.first);
+      }
+    } catch (e) {
+      print('[Dashboard] fallback heartrate error: $e');
+    }
+  }
+
+  // Lanjut listen MQTT stream
+  await for (final data in mqtt.heartRateStream) {
+    yield data;
   }
 });
 
-// Heart rate history dummy (20 data)
+// ── Latest activity — MQTT realtime, fallback data terakhir ───
+final latestActivityProvider = StreamProvider<ActivityData?>((ref) async* {
+  final mqtt     = ref.watch(mqttServiceProvider);
+  final supabase = ref.watch(supabaseProvider);
+  final deviceId = ref.watch(selectedDeviceIdProvider);
+
+  // Ambil data activity terakhir hari ini dari Supabase sebagai initial
+  if (deviceId != null) {
+    try {
+      final now      = DateTime.now();
+      final todayStr =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+
+      final res = await supabase
+          .from('activity_logs')
+          .select('steps, calories_burned, active_minutes, distance_km, activity_type, recorded_at')
+          .eq('device_id', deviceId)
+          .gte('recorded_at', '${todayStr}T00:00:00Z')
+          .order('recorded_at', ascending: false)
+          .limit(1);
+
+      if ((res as List).isNotEmpty) {
+        yield ActivityData.fromJson(res.first);
+      }
+    } catch (e) {
+      print('[Dashboard] fallback activity error: $e');
+    }
+  }
+
+  // Lanjut listen MQTT stream
+  await for (final data in mqtt.activityStream) {
+    yield data;
+  }
+});
+
+// ── Device status — MQTT stream ───────────────────────────────
+final deviceStatusStreamProvider = StreamProvider<DeviceStatusData?>((ref) {
+  final mqtt = ref.watch(mqttServiceProvider);
+  return mqtt.deviceStatusStream;
+});
+
+// ── HR history — 20 data terakhir dari Supabase ───────────────
 final heartRateHistoryProvider =
     FutureProvider<List<HeartRateData>>((ref) async {
-  await Future.delayed(const Duration(milliseconds: 800));
-  final now = DateTime.now();
-  final List<int> bpmValues = [
-    72, 75, 73, 78, 80, 76, 74, 79, 82, 80,
-    77, 75, 73, 76, 78, 74, 72, 70, 73, 75,
-  ];
-  return List.generate(
-    20,
-    (i) => HeartRateData(
-      bpm:        bpmValues[i],
-      spo2:       96 + (i % 3),
-      recordedAt: now.subtract(Duration(minutes: (20 - i) * 5)),
-    ),
-  );
+  final supabase = ref.watch(supabaseProvider);
+  final deviceId = ref.watch(selectedDeviceIdProvider);
+  if (deviceId == null) return [];
+
+  final res = await supabase
+      .from('heart_rate_logs')
+      .select('bpm, spo2, recorded_at')
+      .eq('device_id', deviceId)
+      .order('recorded_at', ascending: false)
+      .limit(20);
+
+  return (res as List)
+      .map((e) => HeartRateData.fromJson(e))
+      .toList()
+      .reversed
+      .toList();
 });
 
-// Steps dummy
-final todayStepsProvider = StreamProvider<int>((ref) async* {
-  int steps = 4250;
-  while (true) {
-    yield steps;
-    await Future.delayed(const Duration(seconds: 5));
-    steps += 10;
-  }
+// ── Steps HARI INI — dijumlah dari semua activity_logs hari ini
+// Ambil nilai steps tertinggi hari ini (karena Arduino kirim
+// steps kumulatif, bukan delta)
+final todayStepsProvider = FutureProvider<int>((ref) async {
+  final supabase = ref.watch(supabaseProvider);
+  final deviceId = ref.watch(selectedDeviceIdProvider);
+  if (deviceId == null) return 0;
+
+  final now      = DateTime.now();
+  final todayStr =
+      '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+
+  final res = await supabase
+      .from('activity_logs')
+      .select('steps')
+      .eq('device_id', deviceId)
+      .gte('recorded_at', '${todayStr}T00:00:00Z')
+      .lte('recorded_at', '${todayStr}T23:59:59Z')
+      .order('recorded_at', ascending: false)
+      .limit(1); // ambil yang terbaru = nilai kumulatif tertinggi
+
+  if ((res as List).isEmpty) return 0;
+  return (res.first['steps'] as num?)?.toInt() ?? 0;
 });
 
-// Daily summary dummy
-final todaySummaryProvider =
-    FutureProvider<Map<String, dynamic>?>((ref) async {
-  await Future.delayed(const Duration(milliseconds: 600));
-  return {
-    'calories_burned': 312,
-    'active_minutes':  45,
-    'distance_km':     3.2,
-  };
+// ── Kalori HARI INI — sama, ambil nilai terbaru (kumulatif) ───
+final todayCaloriesProvider = FutureProvider<int>((ref) async {
+  final supabase = ref.watch(supabaseProvider);
+  final deviceId = ref.watch(selectedDeviceIdProvider);
+  if (deviceId == null) return 0;
+
+  final now      = DateTime.now();
+  final todayStr =
+      '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+
+  final res = await supabase
+      .from('activity_logs')
+      .select('calories_burned')
+      .eq('device_id', deviceId)
+      .gte('recorded_at', '${todayStr}T00:00:00Z')
+      .lte('recorded_at', '${todayStr}T23:59:59Z')
+      .order('recorded_at', ascending: false)
+      .limit(1); // ambil yang terbaru = nilai kumulatif tertinggi
+
+  if ((res as List).isEmpty) return 0;
+  return (res.first['calories_burned'] as num?)?.toInt() ?? 0;
 });

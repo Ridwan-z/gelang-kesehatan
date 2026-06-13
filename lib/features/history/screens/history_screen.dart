@@ -25,104 +25,73 @@ class HistoryScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // ── Filter bar ────────────────────────────────
-          _FilterBar(filter: filter),
+      body: Column(children: [
+        _FilterBar(filter: filter),
 
-          // ── Info rentang aktif ────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Row(children: [
-              Icon(Icons.info_outline,
-                  size:  13,
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Row(children: [
+            Icon(Icons.info_outline,
+                size:  13,
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withOpacity(0.4)),
+            const SizedBox(width: 6),
+            Text(
+              '${DateFormat('d MMM yyyy', 'id').format(filter.startDate)}'
+              ' – '
+              '${DateFormat('d MMM yyyy', 'id').format(filter.endDate)}'
+              '  (${filter.totalDays} hari)',
+              style: TextStyle(
+                  fontSize: 11,
                   color: Theme.of(context)
                       .colorScheme
                       .onSurface
-                      .withOpacity(0.4)),
-              const SizedBox(width: 6),
-              Text(
-                '${DateFormat('d MMM yyyy', 'id').format(filter.startDate)}'
-                ' – '
-                '${DateFormat('d MMM yyyy', 'id').format(filter.endDate)}'
-                '  (${filter.totalDays} hari)',
-                style: TextStyle(
-                    fontSize: 11,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withOpacity(0.45)),
-              ),
-            ]),
-          ),
-
-          // ── Konten ────────────────────────────────────
-          Expanded(
-            child: summaries.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
-              error: (_, __) =>
-                  const Center(child: Text('Gagal memuat data')),
-              data: (data) => _buildContent(context, data),
+                      .withOpacity(0.45)),
             ),
+          ]),
+        ),
+
+        Expanded(
+          child: summaries.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error:   (e, _) => _ErrorState(message: e.toString()),
+            data:    (data) => data.isEmpty
+                ? _EmptyState(filter: filter)
+                : _buildContent(context, data),
           ),
-        ],
-      ),
+        ),
+      ]),
     );
   }
 
-  Widget _buildContent(
-      BuildContext context, List<DailySummaryData> data) {
-    if (data.isEmpty) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.bar_chart_outlined,
-              size:  56,
-              color: Theme.of(context)
-                  .colorScheme
-                  .onSurface
-                  .withOpacity(0.2)),
-          const SizedBox(height: 12),
-          Text('Tidak ada data untuk rentang ini',
-              style: TextStyle(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withOpacity(0.4))),
-        ]),
-      );
-    }
-
+  Widget _buildContent(BuildContext context, List<DailySummaryData> data) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [
-        // BPM
         _SectionTitle(title: 'Detak Jantung', icon: Icons.favorite),
         const SizedBox(height: 8),
-        _BpmHistoryChart(summaries: data),
+        _BpmChart(summaries: data),
         const SizedBox(height: 8),
-        _BpmStatsRow(summaries: data),
+        _BpmStats(summaries: data),
         const SizedBox(height: 20),
 
-        // SpO2
         _SectionTitle(title: 'Saturasi O₂', icon: Icons.air),
         const SizedBox(height: 8),
         _Spo2Chart(summaries: data),
         const SizedBox(height: 20),
 
-        // Langkah
-        _SectionTitle(
-            title: 'Langkah Kaki', icon: Icons.directions_walk),
+        _SectionTitle(title: 'Langkah Kaki', icon: Icons.directions_walk),
         const SizedBox(height: 8),
         _StepsChart(summaries: data),
         const SizedBox(height: 8),
-        _StepsStatsRow(summaries: data),
+        _StepsStats(summaries: data),
         const SizedBox(height: 20),
 
-        // Kalori
         _SectionTitle(
             title: 'Kalori & Aktivitas',
-            icon: Icons.local_fire_department),
+            icon:  Icons.local_fire_department),
         const SizedBox(height: 8),
         _CaloriesChart(summaries: data),
         const SizedBox(height: 20),
@@ -142,15 +111,12 @@ class HistoryScreen extends ConsumerWidget {
       initialDateRange: filter.preset == HistoryPreset.custom &&
               filter.customStart != null &&
               filter.customEnd != null
-          ? DateTimeRange(
-              start: filter.customStart!, end: filter.customEnd!)
-          : DateTimeRange(
-              start: filter.startDate, end: filter.endDate),
+          ? DateTimeRange(start: filter.customStart!, end: filter.customEnd!)
+          : DateTimeRange(start: filter.startDate, end: filter.endDate),
       locale:      const Locale('id', 'ID'),
       helpText:    'Pilih Rentang Tanggal',
       cancelText:  'Batal',
       confirmText: 'Terapkan',
-      saveText:    'Terapkan',
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
           colorScheme: Theme.of(ctx).colorScheme.copyWith(
@@ -170,6 +136,33 @@ class HistoryScreen extends ConsumerWidget {
   }
 }
 
+// Tambahkan di bagian bawah file, setelah class _BpmChart
+class _BpmStats extends StatelessWidget {
+  final List<DailySummaryData> summaries;
+  const _BpmStats({required this.summaries});
+
+  @override
+  Widget build(BuildContext context) {
+    final avg = summaries.isEmpty ? 0
+        : summaries.map((e) => e.avgBpm).reduce((a, b) => a + b) ~/
+            summaries.length;
+    final max = summaries.isEmpty ? 0
+        : summaries.map((e) => e.maxBpm).reduce((a, b) => a > b ? a : b);
+    final min = summaries.isEmpty ? 0
+        : summaries.map((e) => e.minBpm).reduce((a, b) => a < b ? a : b);
+
+    return Row(children: [
+      Expanded(child: _StatChip(label: 'Rata-rata', value: '$avg',
+          unit: 'bpm', color: const Color(0xFF1DB954))),
+      const SizedBox(width: 8),
+      Expanded(child: _StatChip(label: 'Tertinggi', value: '$max',
+          unit: 'bpm', color: const Color(0xFFFF3B30))),
+      const SizedBox(width: 8),
+      Expanded(child: _StatChip(label: 'Terendah', value: '$min',
+          unit: 'bpm', color: const Color(0xFF0A84FF))),
+    ]);
+  }
+}
 // ── Filter bar ────────────────────────────────────────────────
 class _FilterBar extends ConsumerWidget {
   final HistoryFilter filter;
@@ -216,17 +209,15 @@ class _FilterBar extends ConsumerWidget {
                                 color: theme.colorScheme.onSurface
                                     .withOpacity(0.12)),
                       ),
-                      child: Text(
-                        p.$2,
-                        style: TextStyle(
-                          fontSize:   13,
-                          fontWeight: FontWeight.w600,
-                          color: isSelected
-                              ? Colors.black
-                              : theme.colorScheme.onSurface
-                                  .withOpacity(0.6),
-                        ),
-                      ),
+                      child: Text(p.$2,
+                          style: TextStyle(
+                            fontSize:   13,
+                            fontWeight: FontWeight.w600,
+                            color: isSelected
+                                ? Colors.black
+                                : theme.colorScheme.onSurface
+                                    .withOpacity(0.6),
+                          )),
                     ),
                   ),
                 );
@@ -234,13 +225,10 @@ class _FilterBar extends ConsumerWidget {
             ),
           ),
         ),
-
-        // Custom chip
         if (filter.preset == HistoryPreset.custom) ...[
           const SizedBox(width: 6),
           Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 10, vertical: 7),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(
               color:        theme.colorScheme.primary,
               borderRadius: BorderRadius.circular(20),
@@ -261,34 +249,40 @@ class _FilterBar extends ConsumerWidget {
   }
 }
 
-// ── BPM chart ─────────────────────────────────────────────────
-class _BpmHistoryChart extends StatelessWidget {
+// ── BPM chart — FIX: handle single data point ─────────────────
+class _BpmChart extends StatelessWidget {
   final List<DailySummaryData> summaries;
-  const _BpmHistoryChart({required this.summaries});
+  const _BpmChart({required this.summaries});
 
   @override
   Widget build(BuildContext context) {
-    final theme    = Theme.of(context);
-    final display  = summaries.length > 60
+    final theme   = Theme.of(context);
+    final display = summaries.length > 60
         ? summaries.sublist(summaries.length - 60)
         : summaries;
-    final interval = display.length <= 7
-        ? 1.0
-        : display.length <= 30
-            ? 5.0
-            : display.length <= 90
-                ? 15.0
-                : 30.0;
+    final interval = display.length <= 7 ? 1.0
+        : display.length <= 30 ? 5.0
+        : display.length <= 90 ? 15.0 : 30.0;
 
-    final spots    = display.asMap().entries
+    // FIX: jika hanya 1 titik, duplikat agar chart bisa render
+    final isSingle = display.length == 1;
+    final chartData = isSingle
+        ? [display.first, display.first]
+        : display;
+
+    final avgSpots = chartData.asMap().entries
         .map((e) => FlSpot(e.key.toDouble(), e.value.avgBpm.toDouble()))
         .toList();
-    final maxSpots = display.asMap().entries
+    final maxSpots = chartData.asMap().entries
         .map((e) => FlSpot(e.key.toDouble(), e.value.maxBpm.toDouble()))
         .toList();
-    final minSpots = display.asMap().entries
+    final minSpots = chartData.asMap().entries
         .map((e) => FlSpot(e.key.toDouble(), e.value.minBpm.toDouble()))
         .toList();
+
+    // Hitung min/max Y dengan padding
+   const minY = 0.0;
+  const maxY = 150.0;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -306,123 +300,85 @@ class _BpmHistoryChart extends StatelessWidget {
           _LegendDot(color: const Color(0xFF0A84FF), label: 'Min'),
         ]),
         const SizedBox(height: 12),
-        SizedBox(
-          height: 160,
-          child: LineChart(LineChartData(
-            gridData: FlGridData(
-              show: true,
-              drawVerticalLine: false,
-              getDrawingHorizontalLine: (_) => FlLine(
-                  color:       theme.colorScheme.onSurface.withOpacity(0.08),
-                  strokeWidth: 1),
-            ),
-            titlesData: FlTitlesData(
-              leftTitles: AxisTitles(
-                sideTitles: SideTitles(
+
+        // FIX: jika hanya 1 data, tampilkan sebagai single point card
+        if (isSingle)
+          _SinglePointCard(
+            items: [
+              _PointItem('Rata-rata', '${display.first.avgBpm} BPM',
+                  const Color(0xFF1DB954)),
+              _PointItem('Tertinggi', '${display.first.maxBpm} BPM',
+                  const Color(0xFFFF3B30)),
+              _PointItem('Terendah', '${display.first.minBpm} BPM',
+                  const Color(0xFF0A84FF)),
+            ],
+            date: display.first.date,
+          )
+        else
+          SizedBox(
+            height: 160,
+            child: LineChart(LineChartData(
+              minY: minY,
+              maxY: maxY,
+              gridData: FlGridData(
+                show: true,
+                drawVerticalLine: false,
+                getDrawingHorizontalLine: (_) => FlLine(
+                    color:       theme.colorScheme.onSurface.withOpacity(0.08),
+                    strokeWidth: 1),
+              ),
+              titlesData: FlTitlesData(
+                leftTitles: AxisTitles(sideTitles: SideTitles(
                   showTitles:   true,
                   reservedSize: 32,
                   getTitlesWidget: (v, _) => Text('${v.toInt()}',
-                      style: TextStyle(
-                          fontSize: 10,
-                          color: theme.colorScheme.onSurface
-                              .withOpacity(0.4))),
-                ),
-              ),
-              bottomTitles: AxisTitles(
-                sideTitles: SideTitles(
+                      style: TextStyle(fontSize: 10,
+                          color: theme.colorScheme.onSurface.withOpacity(0.4))),
+                )),
+                bottomTitles: AxisTitles(sideTitles: SideTitles(
                   showTitles:   true,
                   reservedSize: 24,
                   interval:     interval,
                   getTitlesWidget: (v, _) {
                     final i = v.toInt();
-                    if (i < 0 || i >= display.length)
-                      return const SizedBox();
-                    return Text(
-                      DateFormat('d/M').format(display[i].date),
-                      style: TextStyle(
-                          fontSize: 9,
-                          color: theme.colorScheme.onSurface
-                              .withOpacity(0.4)),
-                    );
+                    if (i < 0 || i >= display.length) return const SizedBox();
+                    return Text(DateFormat('d/M').format(display[i].date),
+                        style: TextStyle(fontSize: 9,
+                            color: theme.colorScheme.onSurface
+                                .withOpacity(0.4)));
                   },
-                ),
+                )),
+                rightTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false)),
+                topTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false)),
               ),
-              rightTitles: const AxisTitles(
-                  sideTitles: SideTitles(showTitles: false)),
-              topTitles: const AxisTitles(
-                  sideTitles: SideTitles(showTitles: false)),
-            ),
-            borderData: FlBorderData(show: false),
-            lineBarsData: [
-              LineChartBarData(
-                spots:    spots,
-                isCurved: true,
-                color:    const Color(0xFF1DB954),
-                barWidth: 2.5,
-                dotData:  FlDotData(show: false),
-                belowBarData: BarAreaData(
-                    show:  true,
-                    color: const Color(0xFF1DB954).withOpacity(0.06)),
-              ),
-              LineChartBarData(
-                spots:      maxSpots,
-                isCurved:   true,
-                color:      const Color(0xFFFF3B30).withOpacity(0.6),
-                barWidth:   1.5,
-                dotData:    FlDotData(show: false),
-                dashArray:  [4, 4],
-              ),
-              LineChartBarData(
-                spots:      minSpots,
-                isCurved:   true,
-                color:      const Color(0xFF0A84FF).withOpacity(0.6),
-                barWidth:   1.5,
-                dotData:    FlDotData(show: false),
-                dashArray:  [4, 4],
-              ),
-            ],
-          )),
-        ),
+              borderData: FlBorderData(show: false),
+              lineBarsData: [
+                LineChartBarData(spots: avgSpots, isCurved: true,
+                    color: const Color(0xFF1DB954), barWidth: 2.5,
+                    dotData: FlDotData(show: display.length <= 3),
+                    belowBarData: BarAreaData(show: true,
+                        color: const Color(0xFF1DB954).withOpacity(0.06))),
+                LineChartBarData(spots: maxSpots, isCurved: true,
+                    color: const Color(0xFFFF3B30).withOpacity(0.6),
+                    barWidth: 1.5,
+                    dotData: FlDotData(show: display.length <= 3),
+                    dashArray: [4, 4]),
+                LineChartBarData(spots: minSpots, isCurved: true,
+                    color: const Color(0xFF0A84FF).withOpacity(0.6),
+                    barWidth: 1.5,
+                    dotData: FlDotData(show: display.length <= 3),
+                    dashArray: [4, 4]),
+              ],
+            )),
+          ),
       ]),
     );
   }
 }
 
-// ── BPM stats ─────────────────────────────────────────────────
-class _BpmStatsRow extends StatelessWidget {
-  final List<DailySummaryData> summaries;
-  const _BpmStatsRow({required this.summaries});
-
-  @override
-  Widget build(BuildContext context) {
-    final avg = summaries.isEmpty
-        ? 0
-        : summaries.map((e) => e.avgBpm).reduce((a, b) => a + b) ~/
-            summaries.length;
-    final max = summaries.isEmpty
-        ? 0
-        : summaries.map((e) => e.maxBpm).reduce((a, b) => a > b ? a : b);
-    final min = summaries.isEmpty
-        ? 0
-        : summaries.map((e) => e.minBpm).reduce((a, b) => a < b ? a : b);
-
-    return Row(children: [
-      Expanded(child: _StatChip(
-          label: 'Rata-rata', value: '$avg', unit: 'bpm',
-          color: const Color(0xFF1DB954))),
-      const SizedBox(width: 8),
-      Expanded(child: _StatChip(
-          label: 'Tertinggi', value: '$max', unit: 'bpm',
-          color: const Color(0xFFFF3B30))),
-      const SizedBox(width: 8),
-      Expanded(child: _StatChip(
-          label: 'Terendah', value: '$min', unit: 'bpm',
-          color: const Color(0xFF0A84FF))),
-    ]);
-  }
-}
-
-// ── SpO2 chart ────────────────────────────────────────────────
+// ── SpO2 chart — FIX: handle single data point ────────────────
 class _Spo2Chart extends StatelessWidget {
   final List<DailySummaryData> summaries;
   const _Spo2Chart({required this.summaries});
@@ -436,9 +392,11 @@ class _Spo2Chart extends StatelessWidget {
     final interval = display.length <= 7 ? 1.0
         : display.length <= 30 ? 5.0
         : display.length <= 90 ? 15.0 : 30.0;
-    final spots    = display.asMap().entries
-        .map((e) =>
-            FlSpot(e.key.toDouble(), e.value.avgSpo2.toDouble()))
+
+    final isSingle  = display.length == 1;
+    final chartData = isSingle ? [display.first, display.first] : display;
+    final spots     = chartData.asMap().entries
+        .map((e) => FlSpot(e.key.toDouble(), e.value.avgSpo2.toDouble()))
         .toList();
 
     return Container(
@@ -446,67 +404,139 @@ class _Spo2Chart extends StatelessWidget {
       decoration: BoxDecoration(
           color:        theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(16)),
-      child: SizedBox(
-        height: 120,
-        child: LineChart(LineChartData(
-          minY: 90, maxY: 100,
-          gridData: FlGridData(
-            show: true,
-            drawVerticalLine: false,
-            getDrawingHorizontalLine: (_) => FlLine(
-                color:       theme.colorScheme.onSurface.withOpacity(0.08),
-                strokeWidth: 1),
-          ),
-          titlesData: FlTitlesData(
-            leftTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles:   true,
-                reservedSize: 32,
-                getTitlesWidget: (v, _) => Text('${v.toInt()}%',
-                    style: TextStyle(
-                        fontSize: 10,
-                        color: theme.colorScheme.onSurface
-                            .withOpacity(0.4))),
-              ),
+      child: isSingle
+          ? _SinglePointCard(
+              items: [
+                _PointItem('SpO2', '${display.first.avgSpo2}%',
+                    const Color(0xFF0A84FF)),
+              ],
+              date: display.first.date,
+            )
+          : SizedBox(
+              height: 120,
+              child: LineChart(LineChartData(
+                minY: 0, maxY: 130,
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  getDrawingHorizontalLine: (_) => FlLine(
+                      color:       theme.colorScheme.onSurface.withOpacity(0.08),
+                      strokeWidth: 1),
+                ),
+                titlesData: FlTitlesData(
+                  leftTitles: AxisTitles(sideTitles: SideTitles(
+                    showTitles:   true,
+                    reservedSize: 32,
+                    getTitlesWidget: (v, _) => Text('${v.toInt()}%',
+                        style: TextStyle(fontSize: 10,
+                            color: theme.colorScheme.onSurface.withOpacity(0.4))),
+                  )),
+                  bottomTitles: AxisTitles(sideTitles: SideTitles(
+                    showTitles:   true,
+                    reservedSize: 24,
+                    interval:     interval,
+                    getTitlesWidget: (v, _) {
+                      final i = v.toInt();
+                      if (i < 0 || i >= display.length) return const SizedBox();
+                      return Text(DateFormat('d/M').format(display[i].date),
+                          style: TextStyle(fontSize: 9,
+                              color: theme.colorScheme.onSurface
+                                  .withOpacity(0.4)));
+                    },
+                  )),
+                  rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                ),
+                borderData: FlBorderData(show: false),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots:    spots,
+                    isCurved: true,
+                    color:    const Color(0xFF0A84FF),
+                    barWidth: 2.5,
+                    dotData:  FlDotData(show: display.length <= 3),
+                    belowBarData: BarAreaData(
+                        show:  true,
+                        color: const Color(0xFF0A84FF).withOpacity(0.08)),
+                  ),
+                ],
+              )),
             ),
-            bottomTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles:   true,
-                reservedSize: 24,
-                interval:     interval,
-                getTitlesWidget: (v, _) {
-                  final i = v.toInt();
-                  if (i < 0 || i >= display.length)
-                    return const SizedBox();
-                  return Text(
-                      DateFormat('d/M').format(display[i].date),
-                      style: TextStyle(
-                          fontSize: 9,
-                          color: theme.colorScheme.onSurface
-                              .withOpacity(0.4)));
-                },
-              ),
-            ),
-            rightTitles: const AxisTitles(
-                sideTitles: SideTitles(showTitles: false)),
-            topTitles: const AxisTitles(
-                sideTitles: SideTitles(showTitles: false)),
-          ),
-          borderData: FlBorderData(show: false),
-          lineBarsData: [
-            LineChartBarData(
-              spots:    spots,
-              isCurved: true,
-              color:    const Color(0xFF0A84FF),
-              barWidth: 2.5,
-              dotData:  FlDotData(show: false),
-              belowBarData: BarAreaData(
-                  show:  true,
-                  color: const Color(0xFF0A84FF).withOpacity(0.08)),
-            ),
-          ],
-        )),
+    );
+  }
+}
+
+// ── Single point card — tampil jika hanya 1 hari data ─────────
+class _PointItem {
+  final String label, value;
+  final Color color;
+  const _PointItem(this.label, this.value, this.color);
+}
+
+class _SinglePointCard extends StatelessWidget {
+  final List<_PointItem> items;
+  final DateTime date;
+  const _SinglePointCard({required this.items, required this.date});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color:        theme.colorScheme.onSurface.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
       ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+        Row(children: [
+          Icon(Icons.calendar_today,
+              size:  12,
+              color: theme.colorScheme.onSurface.withOpacity(0.4)),
+          const SizedBox(width: 6),
+          Text(
+            DateFormat('d MMMM yyyy', 'id').format(date),
+            style: TextStyle(
+                fontSize: 11,
+                color: theme.colorScheme.onSurface.withOpacity(0.4)),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color:        theme.colorScheme.primary.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text('1 hari data',
+                style: TextStyle(
+                    fontSize:   9,
+                    fontWeight: FontWeight.w600,
+                    color:      theme.colorScheme.primary)),
+          ),
+        ]),
+        const SizedBox(height: 12),
+        Row(
+          children: items.map((item) => Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+              Text(item.label,
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: theme.colorScheme.onSurface.withOpacity(0.5))),
+              const SizedBox(height: 2),
+              Text(item.value,
+                  style: TextStyle(
+                      fontSize:   18,
+                      fontWeight: FontWeight.w700,
+                      color:      item.color)),
+            ]),
+          )).toList(),
+        ),
+      ]),
     );
   }
 }
@@ -522,11 +552,13 @@ class _StepsChart extends StatelessWidget {
     final display = summaries.length > 30
         ? summaries.sublist(summaries.length - 30)
         : summaries;
-    final barW    = display.length <= 7
-        ? 18.0
-        : display.length <= 14
-            ? 12.0
-            : 8.0;
+    final barW    = display.length <= 7 ? 18.0
+        : display.length <= 14 ? 12.0 : 8.0;
+
+    // Hitung maxY dinamis
+    final maxSteps = display.isEmpty ? 10000
+        : display.map((e) => e.totalSteps).reduce((a, b) => a > b ? a : b);
+    final maxY = (maxSteps * 1.2).clamp(1000.0, 30000.0);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -536,7 +568,7 @@ class _StepsChart extends StatelessWidget {
       child: SizedBox(
         height: 140,
         child: BarChart(BarChartData(
-          maxY: 12000,
+          maxY: maxY,
           gridData: FlGridData(
             show: true,
             drawVerticalLine: false,
@@ -545,58 +577,44 @@ class _StepsChart extends StatelessWidget {
                 strokeWidth: 1),
           ),
           titlesData: FlTitlesData(
-            leftTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles:   true,
-                reservedSize: 36,
-                getTitlesWidget: (v, _) => Text(
-                    v >= 1000
-                        ? '${(v / 1000).toStringAsFixed(0)}k'
-                        : '${v.toInt()}',
-                    style: TextStyle(
-                        fontSize: 10,
-                        color: theme.colorScheme.onSurface
-                            .withOpacity(0.4))),
-              ),
-            ),
-            bottomTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles:   true,
-                reservedSize: 24,
-                getTitlesWidget: (v, _) {
-                  final i = v.toInt();
-                  if (i < 0 || i >= display.length)
-                    return const SizedBox();
-                  return Text(
-                      DateFormat('d/M').format(display[i].date),
-                      style: TextStyle(
-                          fontSize: 9,
-                          color: theme.colorScheme.onSurface
-                              .withOpacity(0.4)));
-                },
-              ),
-            ),
+            leftTitles: AxisTitles(sideTitles: SideTitles(
+              showTitles:   true,
+              reservedSize: 36,
+              getTitlesWidget: (v, _) => Text(
+                  v >= 1000
+                      ? '${(v / 1000).toStringAsFixed(0)}k'
+                      : '${v.toInt()}',
+                  style: TextStyle(fontSize: 10,
+                      color: theme.colorScheme.onSurface.withOpacity(0.4))),
+            )),
+            bottomTitles: AxisTitles(sideTitles: SideTitles(
+              showTitles:   true,
+              reservedSize: 24,
+              getTitlesWidget: (v, _) {
+                final i = v.toInt();
+                if (i < 0 || i >= display.length) return const SizedBox();
+                return Text(DateFormat('d/M').format(display[i].date),
+                    style: TextStyle(fontSize: 9,
+                        color: theme.colorScheme.onSurface.withOpacity(0.4)));
+              },
+            )),
             rightTitles: const AxisTitles(
                 sideTitles: SideTitles(showTitles: false)),
             topTitles: const AxisTitles(
                 sideTitles: SideTitles(showTitles: false)),
           ),
           borderData: FlBorderData(show: false),
-          barGroups: display.asMap().entries
-              .map((e) => BarChartGroupData(
-                    x: e.key,
-                    barRods: [
-                      BarChartRodData(
-                        toY: e.value.totalSteps.toDouble(),
-                        color: e.value.totalSteps >= 10000
-                            ? const Color(0xFF1DB954)
-                            : const Color(0xFF0A84FF),
-                        width:        barW,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ],
-                  ))
-              .toList(),
+          barGroups: display.asMap().entries.map((e) => BarChartGroupData(
+            x: e.key,
+            barRods: [BarChartRodData(
+              toY:          e.value.totalSteps.toDouble(),
+              color:        e.value.totalSteps >= 10000
+                  ? const Color(0xFF1DB954)
+                  : const Color(0xFF0A84FF),
+              width:        barW,
+              borderRadius: BorderRadius.circular(4),
+            )],
+          )).toList(),
         )),
       ),
     );
@@ -604,34 +622,30 @@ class _StepsChart extends StatelessWidget {
 }
 
 // ── Steps stats ───────────────────────────────────────────────
-class _StepsStatsRow extends StatelessWidget {
+class _StepsStats extends StatelessWidget {
   final List<DailySummaryData> summaries;
-  const _StepsStatsRow({required this.summaries});
+  const _StepsStats({required this.summaries});
 
   @override
   Widget build(BuildContext context) {
-    final total = summaries.isEmpty
-        ? 0
+    final total = summaries.isEmpty ? 0
         : summaries.map((e) => e.totalSteps).reduce((a, b) => a + b);
     final avg  = summaries.isEmpty ? 0 : total ~/ summaries.length;
-    final best = summaries.isEmpty
-        ? 0
-        : summaries
-            .map((e) => e.totalSteps)
-            .reduce((a, b) => a > b ? a : b);
+    final best = summaries.isEmpty ? 0
+        : summaries.map((e) => e.totalSteps).reduce((a, b) => a > b ? a : b);
     final fmt  = NumberFormat('#,###');
 
     return Row(children: [
-      Expanded(child: _StatChip(
-          label: 'Total', value: fmt.format(total), unit: 'langkah',
+      Expanded(child: _StatChip(label: 'Total',
+          value: fmt.format(total), unit: 'langkah',
           color: const Color(0xFF0A84FF))),
       const SizedBox(width: 8),
-      Expanded(child: _StatChip(
-          label: 'Rata-rata', value: fmt.format(avg), unit: '/hari',
+      Expanded(child: _StatChip(label: 'Rata-rata',
+          value: fmt.format(avg), unit: '/hari',
           color: const Color(0xFF1DB954))),
       const SizedBox(width: 8),
-      Expanded(child: _StatChip(
-          label: 'Terbaik', value: fmt.format(best), unit: 'langkah',
+      Expanded(child: _StatChip(label: 'Terbaik',
+          value: fmt.format(best), unit: 'langkah',
           color: const Color(0xFFFF9F0A))),
     ]);
   }
@@ -648,11 +662,12 @@ class _CaloriesChart extends StatelessWidget {
     final display = summaries.length > 30
         ? summaries.sublist(summaries.length - 30)
         : summaries;
-    final barW    = display.length <= 7
-        ? 18.0
-        : display.length <= 14
-            ? 12.0
-            : 8.0;
+    final barW    = display.length <= 7 ? 18.0
+        : display.length <= 14 ? 12.0 : 8.0;
+
+    final maxCal = display.isEmpty ? 600
+        : display.map((e) => e.caloriesBurned).reduce((a, b) => a > b ? a : b);
+    final maxY   = (maxCal * 1.2).clamp(100.0, 1000.0);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -662,7 +677,7 @@ class _CaloriesChart extends StatelessWidget {
       child: SizedBox(
         height: 140,
         child: BarChart(BarChartData(
-          maxY: 600,
+          maxY: maxY,
           gridData: FlGridData(
             show: true,
             drawVerticalLine: false,
@@ -671,60 +686,46 @@ class _CaloriesChart extends StatelessWidget {
                 strokeWidth: 1),
           ),
           titlesData: FlTitlesData(
-            leftTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles:   true,
-                reservedSize: 36,
-                getTitlesWidget: (v, _) => Text('${v.toInt()}',
-                    style: TextStyle(
-                        fontSize: 10,
-                        color: theme.colorScheme.onSurface
-                            .withOpacity(0.4))),
-              ),
-            ),
-            bottomTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles:   true,
-                reservedSize: 24,
-                getTitlesWidget: (v, _) {
-                  final i = v.toInt();
-                  if (i < 0 || i >= display.length)
-                    return const SizedBox();
-                  return Text(
-                      DateFormat('d/M').format(display[i].date),
-                      style: TextStyle(
-                          fontSize: 9,
-                          color: theme.colorScheme.onSurface
-                              .withOpacity(0.4)));
-                },
-              ),
-            ),
+            leftTitles: AxisTitles(sideTitles: SideTitles(
+              showTitles:   true,
+              reservedSize: 36,
+              getTitlesWidget: (v, _) => Text('${v.toInt()}',
+                  style: TextStyle(fontSize: 10,
+                      color: theme.colorScheme.onSurface.withOpacity(0.4))),
+            )),
+            bottomTitles: AxisTitles(sideTitles: SideTitles(
+              showTitles:   true,
+              reservedSize: 24,
+              getTitlesWidget: (v, _) {
+                final i = v.toInt();
+                if (i < 0 || i >= display.length) return const SizedBox();
+                return Text(DateFormat('d/M').format(display[i].date),
+                    style: TextStyle(fontSize: 9,
+                        color: theme.colorScheme.onSurface.withOpacity(0.4)));
+              },
+            )),
             rightTitles: const AxisTitles(
                 sideTitles: SideTitles(showTitles: false)),
             topTitles: const AxisTitles(
                 sideTitles: SideTitles(showTitles: false)),
           ),
           borderData: FlBorderData(show: false),
-          barGroups: display.asMap().entries
-              .map((e) => BarChartGroupData(
-                    x: e.key,
-                    barRods: [
-                      BarChartRodData(
-                        toY:          e.value.caloriesBurned.toDouble(),
-                        color:        const Color(0xFFFF9F0A),
-                        width:        barW,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ],
-                  ))
-              .toList(),
+          barGroups: display.asMap().entries.map((e) => BarChartGroupData(
+            x: e.key,
+            barRods: [BarChartRodData(
+              toY:          e.value.caloriesBurned.toDouble(),
+              color:        const Color(0xFFFF9F0A),
+              width:        barW,
+              borderRadius: BorderRadius.circular(4),
+            )],
+          )).toList(),
         )),
       ),
     );
   }
 }
 
-// ── Section title ─────────────────────────────────────────────
+// ── Helper widgets ────────────────────────────────────────────
 class _SectionTitle extends StatelessWidget {
   final String title;
   final IconData icon;
@@ -737,13 +738,11 @@ class _SectionTitle extends StatelessWidget {
       Icon(icon, size: 16, color: theme.colorScheme.primary),
       const SizedBox(width: 6),
       Text(title,
-          style: const TextStyle(
-              fontSize: 15, fontWeight: FontWeight.w700)),
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
     ]);
   }
 }
 
-// ── Helper widgets ────────────────────────────────────────────
 class _StatChip extends StatelessWidget {
   final String label, value, unit;
   final Color color;
@@ -762,23 +761,14 @@ class _StatChip extends StatelessWidget {
       decoration: BoxDecoration(
           color:        theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(12)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-        Text(label,
-            style: TextStyle(
-                fontSize: 11,
-                color: theme.colorScheme.onSurface.withOpacity(0.5))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, style: TextStyle(fontSize: 11,
+            color: theme.colorScheme.onSurface.withOpacity(0.5))),
         const SizedBox(height: 4),
-        Text(value,
-            style: TextStyle(
-                fontSize:   16,
-                fontWeight: FontWeight.w700,
-                color:      color)),
-        Text(unit,
-            style: TextStyle(
-                fontSize: 10,
-                color: theme.colorScheme.onSurface.withOpacity(0.4))),
+        Text(value, style: TextStyle(fontSize: 16,
+            fontWeight: FontWeight.w700, color: color)),
+        Text(unit, style: TextStyle(fontSize: 10,
+            color: theme.colorScheme.onSurface.withOpacity(0.4))),
       ]),
     );
   }
@@ -792,19 +782,66 @@ class _LegendDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(mainAxisSize: MainAxisSize.min, children: [
-      Container(
-          width:  8,
-          height: 8,
-          decoration:
-              BoxDecoration(color: color, shape: BoxShape.circle)),
+      Container(width: 8, height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
       const SizedBox(width: 4),
-      Text(label,
-          style: TextStyle(
-              fontSize: 11,
-              color: Theme.of(context)
-                  .colorScheme
-                  .onSurface
-                  .withOpacity(0.6))),
+      Text(label, style: TextStyle(fontSize: 11,
+          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))),
     ]);
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  final HistoryFilter filter;
+  const _EmptyState({required this.filter});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.bar_chart_outlined, size: 56,
+            color: theme.colorScheme.onSurface.withOpacity(0.2)),
+        const SizedBox(height: 12),
+        const Text('Belum ada data',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        Text(
+          'Data akan muncul setelah gelang\nmengirim data pada rentang ini',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+              fontSize: 13,
+              color: theme.colorScheme.onSurface.withOpacity(0.4)),
+        ),
+      ]),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  final String message;
+  const _ErrorState({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.error_outline, size: 48, color: Colors.red),
+          const SizedBox(height: 12),
+          const Text('Gagal memuat data',
+              style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Text(message,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withOpacity(0.5))),
+        ]),
+      ),
+    );
   }
 }

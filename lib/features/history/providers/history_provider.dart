@@ -1,6 +1,8 @@
 // lib/features/history/providers/history_provider.dart
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/providers/auth_provider.dart';
+
 // ── Filter periode ────────────────────────────────────────────
 enum HistoryPreset { week, month, threeMonths, sixMonths, year, custom }
 
@@ -17,11 +19,10 @@ class HistoryFilter {
 
   DateTime get startDate {
     if (preset == HistoryPreset.custom && customStart != null) {
-      return DateTime(
-          customStart!.year, customStart!.month, customStart!.day);
+      return DateTime(customStart!.year, customStart!.month, customStart!.day);
     }
-    final now   = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final today = DateTime(
+        DateTime.now().year, DateTime.now().month, DateTime.now().day);
     switch (preset) {
       case HistoryPreset.week:        return today.subtract(const Duration(days: 6));
       case HistoryPreset.month:       return today.subtract(const Duration(days: 29));
@@ -52,38 +53,22 @@ class HistoryFilter {
       case HistoryPreset.year:        return '1 Tahun';
       case HistoryPreset.custom:
         if (customStart != null && customEnd != null) {
-          final s =
-              '${customStart!.day}/${customStart!.month}/${customStart!.year}';
-          final e =
+          return '${customStart!.day}/${customStart!.month}/${customStart!.year}'
+              ' – '
               '${customEnd!.day}/${customEnd!.month}/${customEnd!.year}';
-          return '$s – $e';
         }
         return 'Custom';
     }
   }
-
-  HistoryFilter copyWith({
-    HistoryPreset? preset,
-    DateTime?      customStart,
-    DateTime?      customEnd,
-  }) =>
-      HistoryFilter(
-        preset:      preset      ?? this.preset,
-        customStart: customStart ?? this.customStart,
-        customEnd:   customEnd   ?? this.customEnd,
-      );
 }
 
-// ── Notifier ──────────────────────────────────────────────────
 class HistoryFilterNotifier extends Notifier<HistoryFilter> {
   @override
   HistoryFilter build() => const HistoryFilter();
 
-  void setPreset(HistoryPreset preset) =>
-      state = HistoryFilter(preset: preset);
+  void setPreset(HistoryPreset p) => state = HistoryFilter(preset: p);
 
-  void setCustomRange(DateTime start, DateTime end) =>
-      state = HistoryFilter(
+  void setCustomRange(DateTime start, DateTime end) => state = HistoryFilter(
         preset:      HistoryPreset.custom,
         customStart: start,
         customEnd:   end,
@@ -94,7 +79,7 @@ final historyFilterProvider =
     NotifierProvider<HistoryFilterNotifier, HistoryFilter>(
         HistoryFilterNotifier.new);
 
-// ── Model daily summary ───────────────────────────────────────
+// ── Model ─────────────────────────────────────────────────────
 class DailySummaryData {
   final DateTime date;
   final int avgBpm;
@@ -117,41 +102,109 @@ class DailySummaryData {
   });
 }
 
-// ── Dummy daily summaries ─────────────────────────────────────
+// ── Provider: agregasi dari heart_rate_logs & activity_logs ───
+// Karena daily_summaries belum terisi, kita agregasi langsung
+// dari raw logs per hari dalam rentang filter
 final dailySummariesProvider =
     FutureProvider<List<DailySummaryData>>((ref) async {
-  final filter = ref.watch(historyFilterProvider);
-  await Future.delayed(const Duration(milliseconds: 400));
+  final supabase = ref.watch(supabaseProvider);
+  final filter   = ref.watch(historyFilterProvider);
+  final user     = supabase.auth.currentUser;
+  if (user == null) return [];
 
-  final days  = filter.totalDays;
-  final start = filter.startDate;
+  // Ambil device milik user
+  final devRes = await supabase
+      .from('devices')
+      .select('id')
+      .eq('owner_id', user.id)
+      .limit(1);
 
-  final List<int> bpmBase = [
-    72, 75, 70, 78, 74, 76, 73, 71, 77, 75,
-    80, 74, 72, 76, 78, 73, 70, 75, 77, 74,
-    72, 76, 78, 74, 73, 75, 71, 77, 74, 76,
-  ];
-  final List<int> stepsBase = [
-    8200, 6500, 9100, 7800, 10200, 5400, 8900,
-    7200, 9500, 6800, 8100, 7600, 9200, 8400,
-    6100, 9800, 7300, 8700, 6900, 9100, 7500,
-    8300, 6700, 9400, 7100, 8600, 9000, 7400,
-    8800, 6300,
-  ];
+  if ((devRes as List).isEmpty) return [];
+  final deviceId = devRes.first['id'] as String;
 
-  return List.generate(days, (i) {
-    final date = start.add(Duration(days: i));
-    final idx  = i % bpmBase.length;
-    final bpm  = bpmBase[idx];
+  final startStr = filter.startDate.toIso8601String();
+  final endStr   = filter.endDate.toIso8601String();
+
+  // Query heart_rate_logs
+  final hrRes = await supabase
+      .from('heart_rate_logs')
+      .select('bpm, spo2, recorded_at')
+      .eq('device_id', deviceId)
+      .gte('recorded_at', startStr)
+      .lte('recorded_at', endStr)
+      .order('recorded_at');
+
+  // Query activity_logs
+  final actRes = await supabase
+      .from('activity_logs')
+      .select('steps, calories_burned, active_minutes, recorded_at')
+      .eq('device_id', deviceId)
+      .gte('recorded_at', startStr)
+      .lte('recorded_at', endStr)
+      .order('recorded_at');
+
+  // Agregasi per hari
+  final Map<String, _DayAgg> aggMap = {};
+
+  for (final row in (hrRes as List)) {
+    final dt  = DateTime.parse(row['recorded_at']).toLocal();
+    final key = '${dt.year}-${dt.month.toString().padLeft(2,'0')}-${dt.day.toString().padLeft(2,'0')}';
+    aggMap.putIfAbsent(key, () => _DayAgg(dt));
+    aggMap[key]!.bpmList.add((row['bpm'] as num).toInt());
+    aggMap[key]!.spo2List.add((row['spo2'] as num).toInt());
+  }
+
+  for (final row in (actRes as List)) {
+    final dt  = DateTime.parse(row['recorded_at']).toLocal();
+    final key = '${dt.year}-${dt.month.toString().padLeft(2,'0')}-${dt.day.toString().padLeft(2,'0')}';
+    aggMap.putIfAbsent(key, () => _DayAgg(dt));
+    // Ambil nilai tertinggi steps & kalori hari itu (data terakhir)
+    final steps = (row['steps'] as num?)?.toInt() ?? 0;
+    final cal   = (row['calories_burned'] as num?)?.toInt() ?? 0;
+    final act   = (row['active_minutes'] as num?)?.toInt() ?? 0;
+    if (steps > (aggMap[key]!.maxSteps)) aggMap[key]!.maxSteps = steps;
+    if (cal   > (aggMap[key]!.maxCal))   aggMap[key]!.maxCal   = cal;
+    if (act   > (aggMap[key]!.maxAct))   aggMap[key]!.maxAct   = act;
+  }
+
+  // Konversi ke DailySummaryData
+  final result = aggMap.entries.map((e) {
+    final agg = e.value;
+    final avgBpm  = agg.bpmList.isEmpty ? 0
+        : agg.bpmList.reduce((a, b) => a + b) ~/ agg.bpmList.length;
+    final maxBpm  = agg.bpmList.isEmpty ? 0
+        : agg.bpmList.reduce((a, b) => a > b ? a : b);
+    final minBpm  = agg.bpmList.isEmpty ? 0
+        : agg.bpmList.reduce((a, b) => a < b ? a : b);
+    final avgSpo2 = agg.spo2List.isEmpty ? 0
+        : agg.spo2List.reduce((a, b) => a + b) ~/ agg.spo2List.length;
+
     return DailySummaryData(
-      date:           date,
-      avgBpm:         bpm,
-      maxBpm:         bpm + 20 + (i % 15),
-      minBpm:         bpm - 10 - (i % 8),
-      avgSpo2:        96 + (i % 3),
-      totalSteps:     stepsBase[i % stepsBase.length],
-      caloriesBurned: 250 + (stepsBase[i % stepsBase.length] ~/ 30),
-      activeMinutes:  30 + (i % 40),
+      date:           agg.date,
+      avgBpm:         avgBpm,
+      maxBpm:         maxBpm,
+      minBpm:         minBpm,
+      avgSpo2:        avgSpo2,
+      totalSteps:     agg.maxSteps,
+      caloriesBurned: agg.maxCal,
+      activeMinutes:  agg.maxAct,
     );
-  });
+  }).toList();
+
+  // Sort by date
+  result.sort((a, b) => a.date.compareTo(b.date));
+  return result;
 });
+
+// Helper agregasi per hari
+class _DayAgg {
+  final DateTime date;
+  final List<int> bpmList  = [];
+  final List<int> spo2List = [];
+  int maxSteps = 0;
+  int maxCal   = 0;
+  int maxAct   = 0;
+
+  _DayAgg(this.date);
+}
+

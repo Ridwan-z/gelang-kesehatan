@@ -112,15 +112,7 @@ class ProfileScreen extends ConsumerWidget {
                 MaterialPageRoute(builder: (_) => const NotificationScreen()),
               ),
             ),
-            _MenuItem(
-              icon: Icons.tune,
-              label: 'Batas Alert',
-              subtitle: 'Threshold BPM & SpO2',
- onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const AlertThresholdScreen()),
-              ),            ),
-            _ThemeToggleTile(),
+           
             const SizedBox(height: 20),
 
             // ── Logout ──────────────────────────────────
