@@ -30,14 +30,14 @@ class AlertItem {
   bool get isResolved => resolvedAt != null;
 
   factory AlertItem.fromMap(Map<String, dynamic> m) => AlertItem(
-        id:             m['id'] as String,
-        alertType:      m['alert_type'] as String,
-        value:          (m['value'] as num?)?.toDouble() ?? 0,
-        threshold:      (m['threshold'] as num?)?.toDouble() ?? 0,
+        id:              m['id'] as String,
+        alertType:       m['alert_type'] as String,
+        value:           (m['value'] as num?)?.toDouble() ?? 0,
+        threshold:       (m['threshold'] as num?)?.toDouble() ?? 0,
         buzzerTriggered: m['buzzer_triggered'] as bool? ?? false,
-        notifSent:      m['notif_sent'] as bool? ?? false,
-        triggeredAt:    DateTime.parse(m['triggered_at']).toLocal(),
-        resolvedAt:     m['resolved_at'] != null
+        notifSent:       m['notif_sent'] as bool? ?? false,
+        triggeredAt:     DateTime.parse(m['triggered_at']).toLocal(),
+        resolvedAt:      m['resolved_at'] != null
             ? DateTime.parse(m['resolved_at']).toLocal()
             : null,
       );
@@ -56,7 +56,7 @@ final alertFilterProvider =
     NotifierProvider<AlertFilterNotifier, AlertFilter>(
         AlertFilterNotifier.new);
 
-// ── Provider — query dari Supabase ────────────────────────────
+// ── Provider ──────────────────────────────────────────────────
 final alertsProvider = FutureProvider<List<AlertItem>>((ref) async {
   final supabase = ref.watch(supabaseProvider);
   final user     = supabase.auth.currentUser;
@@ -68,26 +68,18 @@ final alertsProvider = FutureProvider<List<AlertItem>>((ref) async {
       .eq('owner_id', user.id)
       .limit(1);
 
-  print('User ID: ${user.id}');
-  print('Devices result: $devRes');
-  
-  if ((devRes as List).isEmpty) {
-    print('No devices found for user');
-    return [];
-  }
-  
+  if ((devRes as List).isEmpty) return [];
   final deviceId = devRes.first['id'] as String;
-  print('Device ID used: $deviceId');
-  
+
   final res = await supabase
       .from('alerts_log')
-      .select('...')
+      .select(
+          'id, alert_type, value, threshold, buzzer_triggered, '
+          'notif_sent, triggered_at, resolved_at')
       .eq('device_id', deviceId)
       .order('triggered_at', ascending: false)
       .limit(100);
-      
-  print('Alerts found: ${(res as List).length}');
-  
+
   return (res as List).map((e) => AlertItem.fromMap(e)).toList();
 });
 
@@ -105,12 +97,10 @@ class AlertsScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Alert'),
         actions: [
-          // Tombol refresh
           IconButton(
-            icon:    const Icon(Icons.refresh),
+            icon:     const Icon(Icons.refresh),
             onPressed: () => ref.invalidate(alertsProvider),
           ),
-          // Badge jumlah aktif
           alertsAsync.when(
             data: (alerts) {
               final count = alerts.where((a) => !a.isResolved).length;
@@ -155,19 +145,22 @@ class AlertsScreen extends ConsumerWidget {
               _FilterTab(
                 label:    'Semua',
                 selected: filter == AlertFilter.all,
-                onTap: () => ref.read(alertFilterProvider.notifier)
+                onTap: () => ref
+                    .read(alertFilterProvider.notifier)
                     .set(AlertFilter.all),
               ),
               _FilterTab(
                 label:    'Aktif',
                 selected: filter == AlertFilter.unresolved,
-                onTap: () => ref.read(alertFilterProvider.notifier)
+                onTap: () => ref
+                    .read(alertFilterProvider.notifier)
                     .set(AlertFilter.unresolved),
               ),
               _FilterTab(
                 label:    'Selesai',
                 selected: filter == AlertFilter.resolved,
-                onTap: () => ref.read(alertFilterProvider.notifier)
+                onTap: () => ref
+                    .read(alertFilterProvider.notifier)
                     .set(AlertFilter.resolved),
               ),
             ]),
@@ -195,11 +188,12 @@ class AlertsScreen extends ConsumerWidget {
                     final entry = grouped[i];
                     if (entry is String) {
                       return Padding(
-                        padding: const EdgeInsets.only(top: 16, bottom: 8),
+                        padding:
+                            const EdgeInsets.only(top: 16, bottom: 8),
                         child: Text(entry,
                             style: TextStyle(
-                                fontSize:     12,
-                                fontWeight:   FontWeight.w600,
+                                fontSize:      12,
+                                fontWeight:    FontWeight.w600,
                                 color: theme.colorScheme.onSurface
                                     .withOpacity(0.4),
                                 letterSpacing: 0.5)),
@@ -251,7 +245,7 @@ class AlertsScreen extends ConsumerWidget {
   }
 }
 
-// ── Summary row ───────────────────────────────────────────────
+// ── Summary row — hanya BPM tinggi, BPM rendah, jatuh ────────
 class _SummaryRow extends StatelessWidget {
   final List<AlertItem> alerts;
   const _SummaryRow({required this.alerts});
@@ -268,7 +262,8 @@ class _SummaryRow extends StatelessWidget {
 
     final unresolved = alerts.where((a) => !a.isResolved).length;
     final highBpm    = alerts.where((a) => a.alertType == 'high_bpm').length;
-    final lowSpo2    = alerts.where((a) => a.alertType == 'low_spo2').length;
+    final lowBpm     = alerts.where((a) => a.alertType == 'low_bpm').length;
+    final fall       = alerts.where((a) => a.alertType == 'fall').length;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -297,10 +292,10 @@ class _SummaryRow extends StatelessWidget {
         )),
         const SizedBox(width: 8),
         Expanded(child: _SummaryCard(
-          label: 'SpO2 Rendah',
-          value: '$lowSpo2',
-          color: const Color(0xFF0A84FF),
-          icon:  Icons.air,
+          label: 'BPM Rendah',
+          value: '$lowBpm',
+          color: const Color(0xFFFF9F0A),
+          icon:  Icons.favorite_border,
         )),
       ]),
     );
@@ -362,11 +357,9 @@ class _AlertCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: alert.isResolved
             ? null
-            : Border.all(
-                color: info.color.withOpacity(0.4), width: 1),
+            : Border.all(color: info.color.withOpacity(0.4), width: 1),
       ),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        // Icon
         Container(
           width: 40, height: 40,
           decoration: BoxDecoration(
@@ -382,7 +375,6 @@ class _AlertCard extends StatelessWidget {
         ),
         const SizedBox(width: 12),
 
-        // Konten
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -424,7 +416,6 @@ class _AlertCard extends StatelessWidget {
                     color: theme.colorScheme.onSurface.withOpacity(0.5))),
             const SizedBox(height: 8),
 
-            // Meta
             Row(children: [
               Icon(Icons.access_time,
                   size:  11,
@@ -457,7 +448,6 @@ class _AlertCard extends StatelessWidget {
                 ),
             ]),
 
-            // Durasi jika selesai
             if (alert.isResolved && alert.resolvedAt != null)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
@@ -489,13 +479,6 @@ class _AlertCard extends StatelessWidget {
           description: '${value.toInt()} BPM (batas: ${threshold.toInt()} BPM)',
           icon:        Icons.favorite_border,
           color:       const Color(0xFFFF9F0A),
-        );
-      case 'low_spo2':
-        return _AlertInfo(
-          title:       'Saturasi Oksigen Rendah',
-          description: '${value.toInt()}% SpO2 (batas: ${threshold.toInt()}%)',
-          icon:        Icons.air,
-          color:       const Color(0xFF0A84FF),
         );
       case 'fall':
         return _AlertInfo(
@@ -571,7 +554,7 @@ class _FilterTab extends StatelessWidget {
               textAlign: TextAlign.center,
               style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  fontSize: 13,
+                  fontSize:   13,
                   color: selected
                       ? Colors.black
                       : theme.colorScheme.onSurface.withOpacity(0.5))),
@@ -604,7 +587,7 @@ class _EmptyState extends StatelessWidget {
         Text(msg,
             textAlign: TextAlign.center,
             style: TextStyle(
-                color:   theme.colorScheme.onSurface.withOpacity(0.4),
+                color:    theme.colorScheme.onSurface.withOpacity(0.4),
                 fontSize: 14)),
       ]),
     );

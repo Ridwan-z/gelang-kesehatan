@@ -331,22 +331,27 @@ class MqttService {
   Map<String, dynamic>? _cachedProfile;
 
   Future<Map<String, dynamic>?> _getUserProfile() async {
-    if (_cachedProfile != null) return _cachedProfile;
-    final user = _supabase.auth.currentUser;
-    if (user == null) return null;
-    try {
-      final res = await _supabase
-          .from('profiles')
-          .select('height_cm, weight_kg, gender, birth_date')
-          .eq('id', user.id)
-          .maybeSingle();
-      if (res != null) _cachedProfile = res;
-      return _cachedProfile;
-    } catch (e) {
-      print('[MQTT] get profile error: $e');
-      return null;
+  if (_cachedProfile != null) return _cachedProfile;
+  final user = _supabase.auth.currentUser;
+  if (user == null) return null;
+  try {
+    final res = await _supabase
+        .from('profiles')
+        .select('height_cm, weight_kg, age') // ← hapus gender dari query
+        .eq('id', user.id)
+        .maybeSingle();
+    if (res != null) {
+      _cachedProfile = {
+        ...res,
+        'gender': 'male', // ← hardcode male
+      };
     }
+    return _cachedProfile;
+  } catch (e) {
+    print('[MQTT] get profile error: $e');
+    return null;
   }
+}
 
   // ── Handler activity ───────────────────────────────────────
   Future<void> _handleActivity(Map<String, dynamic> json) async {
